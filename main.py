@@ -16,8 +16,8 @@ import datetime
 FRED_API_KEY = os.environ.get("FRED_API_KEY", "")
 fred = Fred(api_key=FRED_API_KEY)
 
-# We'll fetch data for the last 2 years (monthly)
-MONTHS_BACK = 24
+# We'll fetch data for the last X years (monthly)
+MONTHS_BACK = 60
 
 # ---------------------------------------
 # Classification Function
@@ -314,11 +314,18 @@ def layout_dashboard():
             style={"marginLeft": "10px"}
         )
 
-        # Combine the indicator name, month cells, and the button
+        # Increase the width and prevent wrapping for the series name cell:
         table_rows.append(
             html.Tr(
                 [
-                    html.Td(series_name, style={"fontWeight": "bold"}),
+                    html.Td(
+                        series_name,
+                        style={
+                            "fontWeight": "bold",
+                            "whiteSpace": "nowrap",
+                            "width": "300px"  # <-- ADJUSTED WIDTH
+                        }
+                    ),
                     *row_cells,
                     html.Td(modal_button)
                 ],
