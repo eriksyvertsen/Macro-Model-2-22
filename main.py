@@ -19,14 +19,15 @@ fred = Fred(api_key=FRED_API_KEY)
 # We'll fetch data for the last 2 years (monthly)
 MONTHS_BACK = 24
 
-# A simple classification function (replace with your own derivative logic if desired)
-def classify_value(value, prev_value, up_threshold=0.001, accel_threshold=0):
+# ---------------------------------------
+# Classification Function
+# ---------------------------------------
+def classify_value(value, prev_value, up_threshold=0.0001, accel_threshold=0):
     """
     Example classification:
       - If |change| < up_threshold => grey
       - If positive => green
       - If negative => red
-    This is very simplified. Insert your derivative-based red/yellow/green/grey logic here.
     """
     if prev_value is None or prev_value == 0:
         return "grey"
@@ -37,6 +38,21 @@ def classify_value(value, prev_value, up_threshold=0.001, accel_threshold=0):
         return "green"
     else:
         return "red"
+
+# ---------------------------------------
+# Helper to Fetch Series Title from FRED
+# ---------------------------------------
+def get_series_name(series_id):
+    """
+    Use fred.get_series_info(series_id) to retrieve metadata about the series.
+    Returns the 'title' field if available; otherwise, returns the ID as fallback.
+    """
+    try:
+        info = fred.get_series_info(series_id)
+        return info.get("title", series_id)
+    except Exception as e:
+        print(f"Warning: could not fetch series info for {series_id}: {e}")
+        return series_id
 
 # ---------------------------------------
 # Data Fetching & Storage
@@ -52,7 +68,7 @@ def fetch_series_monthly(series_id):
         raw_series = fred.get_series(series_id, observation_start=start_date, observation_end=end_date)
         df = raw_series.reset_index()
         df.columns = ["date", "value"]
-        # Convert to monthly frequency explicitly
+        # Convert to monthly frequency explicitly (month end)
         df = df.set_index("date").resample("ME").last().dropna().reset_index()
         df["date"] = df["date"].dt.strftime("%Y-%m")  # store as YYYY-MM
         df = df.sort_values("date")
@@ -63,13 +79,18 @@ def fetch_series_monthly(series_id):
 
 def store_series_data(series_id, df):
     """
-    Store the monthly data for a series in Replit DB.
+    Store the monthly data + name for a series in Replit DB.
     """
     if df is None:
         return
+    name = get_series_name(series_id)  # <--- Fetch the official title
     records = df.to_dict("records")
     key = f"series_{series_id}"
-    db[key] = {"id": series_id, "data": records}
+    db[key] = {
+        "id": series_id,
+        "name": name,
+        "data": records
+    }
 
     if "series_list" in db:
         s_list = db["series_list"]
@@ -188,7 +209,7 @@ def get_composite_df(weights_dict):
     if combined_df is None:
         return pd.DataFrame(columns=["date", "composite_value"])
 
-    # Fix the fillna method warning: use .ffill() instead of fillna(method="ffill")
+    # forward-fill + fill zeros
     combined_df = combined_df.ffill().fillna(0)
 
     # Weighted sum
@@ -259,6 +280,11 @@ def layout_dashboard():
     # Build table rows
     table_rows = []
     for sid in db["series_list"]:
+        key = f"series_{sid}"
+        entry = db.get(key, {})
+        # The stored 'name' field is the official series title
+        series_name = entry.get("name", sid)
+
         monthly_class = dict(get_monthly_classifications(sid))
 
         # 1) Create the row cells for each month (colored squares)
@@ -292,7 +318,7 @@ def layout_dashboard():
         table_rows.append(
             html.Tr(
                 [
-                    html.Td(sid, style={"fontWeight": "bold"}),
+                    html.Td(series_name, style={"fontWeight": "bold"}),
                     *row_cells,
                     html.Td(modal_button)
                 ],
