@@ -22,7 +22,7 @@ MONTHS_BACK = 60  # e.g. 5 years * 12 months
 # ---------------------------------------
 # Classification Function
 # ---------------------------------------
-def classify_value(value, prev_value, direction_factor=1, up_threshold=0.0001):
+def classify_value(value, prev_value, direction_factor=1, up_threshold=0.01):
     """
     Incorporate direction_factor (+1 or -1).
     If direction_factor = -1, we invert the sign of the change so that
@@ -458,31 +458,48 @@ def handle_cell_click(*args):
     prevent_initial_call=True
 )
 def manage_modal(n_close, *open_clicks):
+    """
+    If 'close-modal-btn' triggered => clear the modal (return "").
+    Else find which open-modal-{sid} triggered => show that indicator's big chart.
+    """
     ctx = callback_context
     if not ctx.triggered:
         return ""
+
     trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
     if trigger_id == "close-modal-btn":
+        # Close the modal
         return ""
+
+    # Otherwise, it's an open-modal-X button
     sid = trigger_id.replace("open-modal-", "")
     df = get_indicator_df(sid)
     if df.empty:
         return ""
-    fig = px.line(df, x="date", y="value", title=f"{sid} - Modal View (Last {MONTHS_BACK} Months)")
+
+    fig = px.line(
+        df,
+        x="date",
+        y="value",
+        title=f"{sid} - Modal View (Last {MONTHS_BACK} Months)"
+    )
     fig.update_layout(height=600, margin=dict(l=40, r=40, t=40, b=40))
 
-    # 'X' close button
+    # Absolutely-positioned 'X' button in the top-right corner
     x_button = html.Button(
-        "×",
+        "×",  # or "X"
         id="close-modal-btn",
         n_clicks=0,
         style={
-            "float": "right",
-            "margin": "10px",
-            "fontSize": "20px",
+            "position": "absolute",
+            "top": "10px",
+            "right": "10px",
+            "fontSize": "24px",
             "border": "none",
             "backgroundColor": "transparent",
-            "cursor": "pointer"
+            "color": "#000",  # black text
+            "cursor": "pointer",
+            "zIndex": 100000
         }
     )
 
@@ -499,6 +516,7 @@ def manage_modal(n_close, *open_clicks):
             },
             children=[
                 html.Div([
+                    # Place the 'X' button first, then the chart
                     x_button,
                     dcc.Graph(figure=fig)
                 ],
@@ -513,6 +531,7 @@ def manage_modal(n_close, *open_clicks):
             ]
         )
     ])
+
 
 # -------------------------------
 # Unified Callback for Composite
