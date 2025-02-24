@@ -17,21 +17,27 @@ FRED_API_KEY = os.environ.get("FRED_API_KEY", "")
 fred = Fred(api_key=FRED_API_KEY)
 
 # We'll fetch data for the last 5 years (monthly)
-MONTHS_BACK = 60  # 5 years * 12 months
+MONTHS_BACK = 60  # e.g. 5 years * 12 months
 
 # ---------------------------------------
 # Classification Function
 # ---------------------------------------
-def classify_value(value, prev_value, up_threshold=0.0001, accel_threshold=0):
+def classify_value(value, prev_value, direction_factor=1, up_threshold=0.0001):
     """
-    Example classification:
+    Incorporate direction_factor (+1 or -1).
+    If direction_factor = -1, we invert the sign of the change so that
+    'positive' moves become negative, etc.
+
       - If |change| < up_threshold => grey
-      - If positive => green
-      - If negative => red
+      - If change > 0 => green
+      - Else => red
     """
     if prev_value is None or prev_value == 0:
         return "grey"
-    change = (value - prev_value) / abs(prev_value)
+
+    # Multiply the derivative by direction_factor
+    change = direction_factor * (value - prev_value) / abs(prev_value)
+
     if abs(change) < up_threshold:
         return "grey"
     elif change > 0:
@@ -39,14 +45,17 @@ def classify_value(value, prev_value, up_threshold=0.0001, accel_threshold=0):
     else:
         return "red"
 
+def get_series_direction_factor(series_id):
+    """
+    Read directionFactor from DB for the given series (default = +1).
+    """
+    entry = db.get(f"series_{series_id}", {})
+    return entry.get("directionFactor", 1)
+
 # ---------------------------------------
 # Helper to Fetch Series Title from FRED
 # ---------------------------------------
 def get_series_name(series_id):
-    """
-    Use fred.get_series_info(series_id) to retrieve metadata about the series.
-    Returns the 'title' field if available; otherwise, returns the ID as fallback.
-    """
     try:
         info = fred.get_series_info(series_id)
         return info.get("title", series_id)
@@ -58,19 +67,15 @@ def get_series_name(series_id):
 # Data Fetching & Storage
 # ---------------------------------------
 def fetch_series_monthly(series_id):
-    """
-    Fetch up to 5 years of monthly data from FRED for the given series_id.
-    Return a DataFrame with columns [date, value].
-    """
     try:
         end_date = datetime.datetime.today()
         start_date = end_date - pd.DateOffset(months=MONTHS_BACK + 1)
         raw_series = fred.get_series(series_id, observation_start=start_date, observation_end=end_date)
         df = raw_series.reset_index()
         df.columns = ["date", "value"]
-        # Convert to monthly frequency explicitly (month end)
+        # monthly freq (month end)
         df = df.set_index("date").resample("ME").last().dropna().reset_index()
-        df["date"] = df["date"].dt.strftime("%Y-%m")  # store as YYYY-MM
+        df["date"] = df["date"].dt.strftime("%Y-%m")
         df = df.sort_values("date")
         return df
     except Exception as e:
@@ -78,18 +83,21 @@ def fetch_series_monthly(series_id):
         return None
 
 def store_series_data(series_id, df):
-    """
-    Store the monthly data + name for a series in Replit DB.
-    """
     if df is None:
         return
-    name = get_series_name(series_id)  # <--- Fetch the official title
+    name = get_series_name(series_id)
     records = df.to_dict("records")
     key = f"series_{series_id}"
+
+    # Preserve existing directionFactor if set
+    existing = db.get(key, {})
+    directionFactor = existing.get("directionFactor", 1)
+
     db[key] = {
         "id": series_id,
         "name": name,
-        "data": records
+        "data": records,
+        "directionFactor": directionFactor
     }
 
     if "series_list" in db:
@@ -101,9 +109,6 @@ def store_series_data(series_id, df):
         db["series_list"] = [series_id]
 
 def refresh_series_data(series_id):
-    """
-    Re-fetch and store monthly data for a given series.
-    """
     df = fetch_series_monthly(series_id)
     if df is not None:
         store_series_data(series_id, df)
@@ -112,9 +117,6 @@ def refresh_series_data(series_id):
         print(f"Failed to refresh data for {series_id}")
 
 def refresh_all_series():
-    """
-    Refresh data for all tracked series.
-    """
     if "series_list" in db:
         for sid in db["series_list"]:
             refresh_series_data(sid)
@@ -137,23 +139,25 @@ scheduler_thread.start()
 # ---------------------------------------
 def get_monthly_classifications(series_id):
     """
-    Return a list of (month_str, classification) for the last MONTHS_BACK months.
-    We'll compare each month's value to the previous month's value.
+    For the last MONTHS_BACK months, compute classification (red/green/grey).
+    Takes into account directionFactor (positive=good or positive=bad).
     """
     key = f"series_{series_id}"
     entry = db.get(key)
     if not entry or "data" not in entry:
         return []
 
-    data = entry["data"]  # list of {date: 'YYYY-MM', value: float}
+    data = entry["data"]
     data = sorted(data, key=lambda x: x["date"])
+    directionFactor = entry.get("directionFactor", 1)
+
     classifications = []
     prev_value = None
     for record in data[-MONTHS_BACK:]:
         month_str = record["date"]
         value = record["value"]
         if prev_value is not None:
-            c = classify_value(value, prev_value)
+            c = classify_value(value, prev_value, direction_factor=directionFactor)
         else:
             c = "grey"
         classifications.append((month_str, c))
@@ -164,9 +168,6 @@ def get_monthly_classifications(series_id):
 # Composite Index Logic
 # ---------------------------------------
 def get_indicator_df(series_id):
-    """
-    Return a DataFrame with columns [date, value] from Replit DB for the last MONTHS_BACK months.
-    """
     entry = db.get(f"series_{series_id}")
     if not entry or "data" not in entry:
         return pd.DataFrame(columns=["date", "value"])
@@ -176,31 +177,35 @@ def get_indicator_df(series_id):
     return df
 
 def load_weights():
-    """
-    Load the user-defined weights from Replit DB. If none, return {}.
-    """
     return db.get("user_weights", {})
 
 def save_weights(new_weights):
-    """
-    Save the user-defined weights to Replit DB.
-    """
     db["user_weights"] = new_weights
 
 def get_composite_df(weights_dict):
     """
-    Given a dict of {series_id: weight}, compute a weighted average time series.
-    Return a DataFrame with columns [date, composite_value].
+    Weighted average time series for up to MONTHS_BACK months.
+    We also apply the directionFactor for each series (inverting if + or -).
     """
     if not weights_dict:
         return pd.DataFrame(columns=["date", "composite_value"])
 
     combined_df = None
     for sid, w in weights_dict.items():
+        entry = db.get(f"series_{sid}", {})
+        directionFactor = entry.get("directionFactor", 1)
+
         df = get_indicator_df(sid)
         if df.empty:
             continue
-        df = df.rename(columns={"value": sid})
+        # multiply 'value' by directionFactor
+        df["adjustedValue"] = df["value"] * directionFactor
+
+        # rename to sid so we can pivot
+        df = df.rename(columns={"adjustedValue": sid})
+        # remove original 'value' col to avoid confusion
+        df = df.drop(columns=["value"], errors="ignore")
+
         if combined_df is None:
             combined_df = df
         else:
@@ -209,10 +214,8 @@ def get_composite_df(weights_dict):
     if combined_df is None:
         return pd.DataFrame(columns=["date", "composite_value"])
 
-    # forward-fill + fill zeros
     combined_df = combined_df.ffill().fillna(0)
 
-    # Weighted sum
     composite_vals = []
     for i, row in combined_df.iterrows():
         total = 0
@@ -220,11 +223,12 @@ def get_composite_df(weights_dict):
             val = row.get(sid, 0)
             total += val * w
         composite_vals.append(total)
+
     combined_df["composite_value"] = composite_vals
     combined_df = combined_df[["date", "composite_value"]]
     combined_df = combined_df.sort_values("date")
 
-    # Optionally trim to last MONTHS_BACK months
+    # Trim to last MONTHS_BACK
     if len(combined_df) > MONTHS_BACK:
         combined_df = combined_df.iloc[-MONTHS_BACK:]
     return combined_df
@@ -241,9 +245,13 @@ app.layout = html.Div([
         html.A("Dashboard Heatmap", href="/", style={"marginRight": "20px"}),
         html.A("Composite Index", href="/composite"),
     ], style={"marginBottom": "20px"}),
-    # Hidden close button so Dash sees it on init
-    # We'll replace the text with an 'X'
+
+    # We'll keep an 'X' close button for the modal
     html.Button("×", id="close-modal-btn", style={"display": "none"}, n_clicks=0),
+
+    # A hidden dummy div to avoid duplicate callback outputs
+    html.Div(id="direction-dummy-output", style={"display": "none"}),
+
     html.Div(id="page-content")
 ])
 
@@ -271,22 +279,32 @@ def layout_dashboard():
             html.H3("No series tracked yet. Please add some or refresh.")
         ])
 
-    # Generate list of months for the past MONTHS_BACK
     base = datetime.date.today().replace(day=1)
     months_list = []
     for i in range(MONTHS_BACK, 0, -1):
         m = base - pd.DateOffset(months=i)
         months_list.append(m.strftime("%Y-%m"))
 
-    # Build table rows
     table_rows = []
     for sid in db["series_list"]:
         key = f"series_{sid}"
         entry = db.get(key, {})
         series_name = entry.get("name", sid)
+        directionFactor = entry.get("directionFactor", 1)
+
+        # Build direction dropdown
+        direction_dropdown = dcc.Dropdown(
+            id=f"direction-dropdown-{sid}",
+            options=[
+                {"label": "Positive is Good", "value": 1},
+                {"label": "Positive is Bad",  "value": -1}
+            ],
+            value=directionFactor,
+            clearable=False,
+            style={"width": "150px"}
+        )
 
         monthly_class = dict(get_monthly_classifications(sid))
-
         row_cells = []
         for month_str in months_list:
             color = monthly_class.get(month_str, "grey")
@@ -305,7 +323,6 @@ def layout_dashboard():
             )
 
         modal_btn_id = f"open-modal-{sid}"
-        # We'll style the X button in the callback, but here's the "Open Modal" button:
         modal_button = html.Button(
             "Open Modal",
             id=modal_btn_id,
@@ -325,13 +342,18 @@ def layout_dashboard():
                         }
                     ),
                     *row_cells,
+                    html.Td(direction_dropdown, style={"verticalAlign": "middle"}),
                     html.Td(modal_button)
                 ],
                 id=f"row-{sid}"
             )
         )
 
-    header_cells = [html.Th("Indicator")] + [html.Th(m) for m in months_list] + [html.Th("Actions")]
+    header_cells = (
+        [html.Th("Indicator")]
+        + [html.Th(m) for m in months_list]
+        + [html.Th("Direction"), html.Th("Actions")]
+    )
     header = html.Tr(header_cells)
 
     return html.Div([
@@ -349,18 +371,16 @@ def layout_dashboard():
 # -------------------------------
 def layout_composite():
     series_list = db.get("series_list", [])
-    weight_data = load_weights()
+    weight_data = db.get("user_weights", {})
 
-    # -- Change: Always reset to equal weights if the # of series changed
-    if series_list:
-        if len(series_list) != len(weight_data):
-            # The user has changed the set of series, so recalc equal weighting
-            default_w = 1.0 / len(series_list)
-            new_wdict = {}
-            for sid in series_list:
-                new_wdict[sid] = default_w
-            save_weights(new_wdict)
-            weight_data = new_wdict
+    # If the number of series changed, reset to equal weighting
+    if series_list and len(series_list) != len(weight_data):
+        default_w = 1.0 / len(series_list)
+        new_wdict = {}
+        for sid in series_list:
+            new_wdict[sid] = default_w
+        save_weights(new_wdict)
+        weight_data = new_wdict
 
     rows = []
     for sid in series_list:
@@ -397,7 +417,7 @@ def display_page(pathname):
     return layout_dashboard()
 
 # -------------------------------
-# Callback: Cell Click => Inline Chart
+# Cell Click => Inline Chart
 # -------------------------------
 @app.callback(
     Output("inline-chart-container", "children"),
@@ -409,28 +429,20 @@ def display_page(pathname):
     prevent_initial_call=True
 )
 def handle_cell_click(*args):
-    """
-    Single-click a cell => show an inline chart below the table.
-    """
     ctx = callback_context
     if not ctx.triggered:
         return ""
-
     trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
     parts = trigger_id.split("-")
     if len(parts) < 2:
         return ""
-
     sid = parts[0]
-    month_str = "-".join(parts[1:])  # e.g. 2025-01
-
+    month_str = "-".join(parts[1:])
     df = get_indicator_df(sid)
     if df.empty:
         return f"No data for {sid}"
-
     fig = px.line(df, x="date", y="value", title=f"{sid} - Last {MONTHS_BACK} Months")
     fig.update_layout(height=400)
-
     return html.Div([
         html.H4(f"Indicator: {sid} (Clicked {month_str})"),
         dcc.Graph(figure=fig)
@@ -446,27 +458,20 @@ def handle_cell_click(*args):
     prevent_initial_call=True
 )
 def manage_modal(n_close, *open_clicks):
-    """
-    If 'close-modal-btn' triggered => clear the modal (return "").
-    Else find which open-modal-{sid} triggered => show that indicator's big chart.
-    """
     ctx = callback_context
     if not ctx.triggered:
         return ""
-
     trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
     if trigger_id == "close-modal-btn":
         return ""
-
     sid = trigger_id.replace("open-modal-", "")
     df = get_indicator_df(sid)
     if df.empty:
         return ""
-
     fig = px.line(df, x="date", y="value", title=f"{sid} - Modal View (Last {MONTHS_BACK} Months)")
     fig.update_layout(height=600, margin=dict(l=40, r=40, t=40, b=40))
 
-    # Use an 'X' button with bigger style, top-right corner
+    # 'X' close button
     x_button = html.Button(
         "×",
         id="close-modal-btn",
@@ -510,7 +515,7 @@ def manage_modal(n_close, *open_clicks):
     ])
 
 # -------------------------------
-# Unified Callback for Page Load & Save Weights
+# Unified Callback for Composite
 # -------------------------------
 @app.callback(
     [Output("weights-save-msg", "children"),
@@ -520,25 +525,14 @@ def manage_modal(n_close, *open_clicks):
     [State(f"weight-input-{sid}", "value") for sid in db.get("series_list", [])]
 )
 def update_composite(n_clicks, pathname, *weight_values):
-    """
-    Single callback for both:
-      - Page load on /composite
-      - Saving weights when user clicks 'Apply & Save Weights'
-    """
-    # If we're not on /composite, return empty
     if pathname != "/composite":
         return "", ""
-
     series_list = db.get("series_list", [])
     if not series_list:
         return "No series found to weight.", ""
-
-    # At this point, layout_composite might have auto-set weights to equal if mismatch
-    stored_weights = load_weights()
-
+    stored_weights = db.get("user_weights", {})
     ctx = callback_context
     if not ctx.triggered:
-        # No triggers => just load existing
         comp_df = get_composite_df(stored_weights)
         if comp_df.empty:
             return "No data to display in composite.", ""
@@ -546,10 +540,7 @@ def update_composite(n_clicks, pathname, *weight_values):
                       title=f"Composite Index (Last {MONTHS_BACK} Months)")
         fig.update_layout(height=400)
         return "", dcc.Graph(figure=fig)
-
     trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
-
-    # If triggered by url => page load
     if trigger_id == "url":
         comp_df = get_composite_df(stored_weights)
         if comp_df.empty:
@@ -559,28 +550,25 @@ def update_composite(n_clicks, pathname, *weight_values):
         fig.update_layout(height=400)
         return "", dcc.Graph(figure=fig)
 
-    # Otherwise, user clicked "save-weights-btn"
+    # user clicked "save-weights-btn"
     weight_values = [wv if wv else 0 for wv in weight_values]
     s = sum(weight_values)
     if s > 0:
         weight_values = [wv / s for wv in weight_values]
-
     new_wdict = {}
     for sid, wv in zip(series_list, weight_values):
         new_wdict[sid] = wv
     save_weights(new_wdict)
-
     comp_df = get_composite_df(new_wdict)
     if comp_df.empty:
         return "Weights saved. (Composite empty)", ""
-
     fig = px.line(comp_df, x="date", y="composite_value",
                   title=f"Composite Index (Last {MONTHS_BACK} Months)")
     fig.update_layout(height=400)
     return "Weights saved.", dcc.Graph(figure=fig)
 
 # -------------------------------
-# Callbacks for Add Series & Refresh All
+# Callback: Add Series & Refresh All
 # -------------------------------
 @app.callback(
     Output("add-series-msg", "children"),
@@ -589,9 +577,6 @@ def update_composite(n_clicks, pathname, *weight_values):
     prevent_initial_call=True
 )
 def add_series(n_clicks, new_id):
-    """
-    Add a new FRED series by ID, fetch & store it in DB.
-    """
     if not new_id:
         return "Please enter a FRED Series ID."
     new_id = new_id.strip()
@@ -604,14 +589,38 @@ def add_series(n_clicks, new_id):
     prevent_initial_call=True
 )
 def do_refresh_all(n_clicks):
-    """
-    Refresh data for all existing series in the DB.
-    """
     refresh_all_series()
     return "All tracked series have been refreshed."
 
+# -------------------------------
+# Callback: Update directionFactor
+# -------------------------------
+@app.callback(
+    Output("direction-dummy-output", "children"),
+    [
+        Input(f"direction-dropdown-{sid}", "value")
+        for sid in db.get("series_list", [])
+    ],
+    prevent_initial_call=True
+)
+def set_directions(*new_values):
+    """
+    When a user changes a 'Positive is Good/Bad' dropdown,
+    store directionFactor in the DB for each series.
+    Then return an empty string to the hidden dummy output.
+    """
+    series_list = db.get("series_list", [])
+    if not series_list:
+        return ""
+    for sid, val in zip(series_list, new_values):
+        key = f"series_{sid}"
+        entry = db.get(key, {})
+        entry["directionFactor"] = val  # update
+        db[key] = entry
+    return ""
+
 # ---------------------------------------
-# Run Server
+# Run
 # ---------------------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8050))
