@@ -16,8 +16,8 @@ import datetime
 FRED_API_KEY = os.environ.get("FRED_API_KEY", "")
 fred = Fred(api_key=FRED_API_KEY)
 
-# We'll fetch data for the last X years (monthly)
-MONTHS_BACK = 60
+# We'll fetch data for the last 5 years (monthly)
+MONTHS_BACK = 60  # 5 years * 12 months
 
 # ---------------------------------------
 # Classification Function
@@ -59,7 +59,7 @@ def get_series_name(series_id):
 # ---------------------------------------
 def fetch_series_monthly(series_id):
     """
-    Fetch up to 2 years of monthly data from FRED for the given series_id.
+    Fetch up to 5 years of monthly data from FRED for the given series_id.
     Return a DataFrame with columns [date, value].
     """
     try:
@@ -137,7 +137,7 @@ scheduler_thread.start()
 # ---------------------------------------
 def get_monthly_classifications(series_id):
     """
-    Return a list of (month_str, classification) for the last 24 months.
+    Return a list of (month_str, classification) for the last MONTHS_BACK months.
     We'll compare each month's value to the previous month's value.
     """
     key = f"series_{series_id}"
@@ -165,7 +165,7 @@ def get_monthly_classifications(series_id):
 # ---------------------------------------
 def get_indicator_df(series_id):
     """
-    Return a DataFrame with columns [date, value] from Replit DB for the last 24 months.
+    Return a DataFrame with columns [date, value] from Replit DB for the last MONTHS_BACK months.
     """
     entry = db.get(f"series_{series_id}")
     if not entry or "data" not in entry:
@@ -224,7 +224,7 @@ def get_composite_df(weights_dict):
     combined_df = combined_df[["date", "composite_value"]]
     combined_df = combined_df.sort_values("date")
 
-    # Optionally trim to last 24 months
+    # Optionally trim to last MONTHS_BACK months
     if len(combined_df) > MONTHS_BACK:
         combined_df = combined_df.iloc[-MONTHS_BACK:]
     return combined_df
@@ -242,7 +242,8 @@ app.layout = html.Div([
         html.A("Composite Index", href="/composite"),
     ], style={"marginBottom": "20px"}),
     # Hidden close button so Dash sees it on init
-    html.Button("Close Modal", id="close-modal-btn", style={"display": "none"}, n_clicks=0),
+    # We'll replace the text with an 'X'
+    html.Button("×", id="close-modal-btn", style={"display": "none"}, n_clicks=0),
     html.Div(id="page-content")
 ])
 
@@ -270,7 +271,7 @@ def layout_dashboard():
             html.H3("No series tracked yet. Please add some or refresh.")
         ])
 
-    # Generate list of months for the past 24 months
+    # Generate list of months for the past MONTHS_BACK
     base = datetime.date.today().replace(day=1)
     months_list = []
     for i in range(MONTHS_BACK, 0, -1):
@@ -282,12 +283,10 @@ def layout_dashboard():
     for sid in db["series_list"]:
         key = f"series_{sid}"
         entry = db.get(key, {})
-        # The stored 'name' field is the official series title
         series_name = entry.get("name", sid)
 
         monthly_class = dict(get_monthly_classifications(sid))
 
-        # 1) Create the row cells for each month (colored squares)
         row_cells = []
         for month_str in months_list:
             color = monthly_class.get(month_str, "grey")
@@ -305,8 +304,8 @@ def layout_dashboard():
                 )
             )
 
-        # 2) Add a final cell with a pre-created "Open Modal" button
         modal_btn_id = f"open-modal-{sid}"
+        # We'll style the X button in the callback, but here's the "Open Modal" button:
         modal_button = html.Button(
             "Open Modal",
             id=modal_btn_id,
@@ -314,7 +313,6 @@ def layout_dashboard():
             style={"marginLeft": "10px"}
         )
 
-        # Increase the width and prevent wrapping for the series name cell:
         table_rows.append(
             html.Tr(
                 [
@@ -323,7 +321,7 @@ def layout_dashboard():
                         style={
                             "fontWeight": "bold",
                             "whiteSpace": "nowrap",
-                            "width": "300px"  # <-- ADJUSTED WIDTH
+                            "width": "300px"
                         }
                     ),
                     *row_cells,
@@ -333,7 +331,6 @@ def layout_dashboard():
             )
         )
 
-    # Build the table header
     header_cells = [html.Th("Indicator")] + [html.Th(m) for m in months_list] + [html.Th("Actions")]
     header = html.Tr(header_cells)
 
@@ -354,11 +351,16 @@ def layout_composite():
     series_list = db.get("series_list", [])
     weight_data = load_weights()
 
-    # If empty, default to equal
-    if not weight_data and series_list:
-        default_w = 1.0 / len(series_list)
-        for sid in series_list:
-            weight_data[sid] = default_w
+    # -- Change: Always reset to equal weights if the # of series changed
+    if series_list:
+        if len(series_list) != len(weight_data):
+            # The user has changed the set of series, so recalc equal weighting
+            default_w = 1.0 / len(series_list)
+            new_wdict = {}
+            for sid in series_list:
+                new_wdict[sid] = default_w
+            save_weights(new_wdict)
+            weight_data = new_wdict
 
     rows = []
     for sid in series_list:
@@ -420,13 +422,13 @@ def handle_cell_click(*args):
         return ""
 
     sid = parts[0]
-    month_str = "-".join(parts[1:])  # e.g. 2023-01
+    month_str = "-".join(parts[1:])  # e.g. 2025-01
 
     df = get_indicator_df(sid)
     if df.empty:
         return f"No data for {sid}"
 
-    fig = px.line(df, x="date", y="value", title=f"{sid} - Last 24 Months")
+    fig = px.line(df, x="date", y="value", title=f"{sid} - Last {MONTHS_BACK} Months")
     fig.update_layout(height=400)
 
     return html.Div([
@@ -461,8 +463,23 @@ def manage_modal(n_close, *open_clicks):
     if df.empty:
         return ""
 
-    fig = px.line(df, x="date", y="value", title=f"{sid} - Modal View")
+    fig = px.line(df, x="date", y="value", title=f"{sid} - Modal View (Last {MONTHS_BACK} Months)")
     fig.update_layout(height=600, margin=dict(l=40, r=40, t=40, b=40))
+
+    # Use an 'X' button with bigger style, top-right corner
+    x_button = html.Button(
+        "×",
+        id="close-modal-btn",
+        n_clicks=0,
+        style={
+            "float": "right",
+            "margin": "10px",
+            "fontSize": "20px",
+            "border": "none",
+            "backgroundColor": "transparent",
+            "cursor": "pointer"
+        }
+    )
 
     return html.Div([
         html.Div(
@@ -477,12 +494,7 @@ def manage_modal(n_close, *open_clicks):
             },
             children=[
                 html.Div([
-                    html.Button(
-                        "Close",
-                        id="close-modal-btn",
-                        n_clicks=0,
-                        style={"float": "right", "margin": "10px"}
-                    ),
+                    x_button,
                     dcc.Graph(figure=fig)
                 ],
                 style={
@@ -521,13 +533,8 @@ def update_composite(n_clicks, pathname, *weight_values):
     if not series_list:
         return "No series found to weight.", ""
 
-    # If we have no stored weights yet, default to equal
+    # At this point, layout_composite might have auto-set weights to equal if mismatch
     stored_weights = load_weights()
-    if not stored_weights and series_list:
-        default_w = 1.0 / len(series_list)
-        for sid in series_list:
-            stored_weights[sid] = default_w
-        save_weights(stored_weights)
 
     ctx = callback_context
     if not ctx.triggered:
@@ -535,7 +542,8 @@ def update_composite(n_clicks, pathname, *weight_values):
         comp_df = get_composite_df(stored_weights)
         if comp_df.empty:
             return "No data to display in composite.", ""
-        fig = px.line(comp_df, x="date", y="composite_value", title="Composite Index")
+        fig = px.line(comp_df, x="date", y="composite_value",
+                      title=f"Composite Index (Last {MONTHS_BACK} Months)")
         fig.update_layout(height=400)
         return "", dcc.Graph(figure=fig)
 
@@ -546,7 +554,8 @@ def update_composite(n_clicks, pathname, *weight_values):
         comp_df = get_composite_df(stored_weights)
         if comp_df.empty:
             return "No data to display in composite.", ""
-        fig = px.line(comp_df, x="date", y="composite_value", title="Composite Index")
+        fig = px.line(comp_df, x="date", y="composite_value",
+                      title=f"Composite Index (Last {MONTHS_BACK} Months)")
         fig.update_layout(height=400)
         return "", dcc.Graph(figure=fig)
 
@@ -565,7 +574,8 @@ def update_composite(n_clicks, pathname, *weight_values):
     if comp_df.empty:
         return "Weights saved. (Composite empty)", ""
 
-    fig = px.line(comp_df, x="date", y="composite_value", title="Composite Index")
+    fig = px.line(comp_df, x="date", y="composite_value",
+                  title=f"Composite Index (Last {MONTHS_BACK} Months)")
     fig.update_layout(height=400)
     return "Weights saved.", dcc.Graph(figure=fig)
 
