@@ -285,6 +285,15 @@ def layout_dashboard():
         m = base - pd.DateOffset(months=i)
         months_list.append(m.strftime("%Y-%m"))
 
+    # CHANGED HERE: Reorder header columns.
+    header_cells = [
+        html.Th("Indicator"),
+        html.Th("Direction"),
+        html.Th("Actions"),
+        *[html.Th(m) for m in months_list]
+    ]
+    header = html.Tr(header_cells)
+
     table_rows = []
     for sid in db["series_list"]:
         key = f"series_{sid}"
@@ -330,6 +339,7 @@ def layout_dashboard():
             style={"marginLeft": "10px"}
         )
 
+        # CHANGED HERE: Reorder table columns + narrower width on series name.
         table_rows.append(
             html.Tr(
                 [
@@ -337,24 +347,18 @@ def layout_dashboard():
                         series_name,
                         style={
                             "fontWeight": "bold",
-                            "whiteSpace": "nowrap",
-                            "width": "300px"
+                            "whiteSpace": "normal",      # Allow text to wrap
+                            "wordWrap": "break-word",   # Break words that are too long
+                            "width": "150px"            # Narrower width (adjust as needed)
                         }
                     ),
-                    *row_cells,
                     html.Td(direction_dropdown, style={"verticalAlign": "middle"}),
-                    html.Td(modal_button)
+                    html.Td(modal_button),
+                    *row_cells
                 ],
                 id=f"row-{sid}"
             )
         )
-
-    header_cells = (
-        [html.Th("Indicator")]
-        + [html.Th(m) for m in months_list]
-        + [html.Th("Direction"), html.Th("Actions")]
-    )
-    header = html.Tr(header_cells)
 
     return html.Div([
         controls_bar,
@@ -497,7 +501,7 @@ def manage_modal(n_close, *open_clicks):
             "fontSize": "24px",
             "border": "none",
             "backgroundColor": "transparent",
-            "color": "#000",  # black text
+            "color": "#000",
             "cursor": "pointer",
             "zIndex": 100000
         }
@@ -516,7 +520,6 @@ def manage_modal(n_close, *open_clicks):
             },
             children=[
                 html.Div([
-                    # Place the 'X' button first, then the chart
                     x_button,
                     dcc.Graph(figure=fig)
                 ],
@@ -531,7 +534,6 @@ def manage_modal(n_close, *open_clicks):
             ]
         )
     ])
-
 
 # -------------------------------
 # Unified Callback for Composite
