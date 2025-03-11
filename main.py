@@ -16,46 +16,53 @@ import datetime
 FRED_API_KEY = os.environ.get("FRED_API_KEY", "")
 fred = Fred(api_key=FRED_API_KEY)
 
-# We'll fetch data for the last 5 years (monthly)
-MONTHS_BACK = 60  # e.g. 5 years * 12 months
+# We'll fetch data for the last X years (monthly)
+MONTHS_BACK = 60
+
+# Color scheme for classifications
+COLOR_SCHEME = {
+    "green": "#28a745",   # Strong positive trend
+    "red": "#dc3545",     # Strong negative trend
+    "yellow": "#ffc107",  # Caution/Mixed signals
+    "grey": "#6c757d"     # Neutral/No significant change
+}
 
 # ---------------------------------------
 # Classification Function
 # ---------------------------------------
-def classify_value(value, prev_value, direction_factor=1, up_threshold=0.01):
+def classify_value(value, prev_value, direction="positive", up_threshold=0.0001, accel_threshold=0):
     """
-    Incorporate direction_factor (+1 or -1).
-    If direction_factor = -1, we invert the sign of the change so that
-    'positive' moves become negative, etc.
-
-      - If |change| < up_threshold => grey
-      - If change > 0 => green
-      - Else => red
+    Classification with direction awareness:
+      - direction="positive": Increase is good (e.g. GDP, industrial production)
+      - direction="negative": Increase is bad (e.g. inflation, unemployment)
     """
     if prev_value is None or prev_value == 0:
         return "grey"
 
-    # Multiply the derivative by direction_factor
-    change = direction_factor * (value - prev_value) / abs(prev_value)
+    # Calculate the change percentage
+    change = (value - prev_value) / abs(prev_value)
 
+    # If change is too small (below threshold), return grey
     if abs(change) < up_threshold:
         return "grey"
-    elif change > 0:
+
+    # Determine if change direction is "good" based on indicator direction
+    is_good_change = (change > 0 and direction == "positive") or (change < 0 and direction == "negative")
+
+    # Return the appropriate color
+    if is_good_change:
         return "green"
     else:
         return "red"
-
-def get_series_direction_factor(series_id):
-    """
-    Read directionFactor from DB for the given series (default = +1).
-    """
-    entry = db.get(f"series_{series_id}", {})
-    return entry.get("directionFactor", 1)
 
 # ---------------------------------------
 # Helper to Fetch Series Title from FRED
 # ---------------------------------------
 def get_series_name(series_id):
+    """
+    Use fred.get_series_info(series_id) to retrieve metadata about the series.
+    Returns the 'title' field if available; otherwise, returns the ID as fallback.
+    """
     try:
         info = fred.get_series_info(series_id)
         return info.get("title", series_id)
@@ -67,37 +74,45 @@ def get_series_name(series_id):
 # Data Fetching & Storage
 # ---------------------------------------
 def fetch_series_monthly(series_id):
+    """
+    Fetch up to 2 years of monthly data from FRED for the given series_id.
+    Return a DataFrame with columns [date, value].
+    """
     try:
         end_date = datetime.datetime.today()
         start_date = end_date - pd.DateOffset(months=MONTHS_BACK + 1)
         raw_series = fred.get_series(series_id, observation_start=start_date, observation_end=end_date)
         df = raw_series.reset_index()
         df.columns = ["date", "value"]
-        # monthly freq (month end)
+        # Convert to monthly frequency explicitly (month end)
         df = df.set_index("date").resample("ME").last().dropna().reset_index()
-        df["date"] = df["date"].dt.strftime("%Y-%m")
+        df["date"] = df["date"].dt.strftime("%Y-%m")  # store as YYYY-MM
         df = df.sort_values("date")
         return df
     except Exception as e:
         print(f"Error fetching monthly series {series_id}: {e}")
         return None
 
-def store_series_data(series_id, df):
+def store_series_data(series_id, df, direction="positive"):
+    """
+    Store the monthly data + name for a series in Replit DB.
+    Now includes direction parameter.
+    """
     if df is None:
         return
-    name = get_series_name(series_id)
+    name = get_series_name(series_id)  # <--- Fetch the official title
     records = df.to_dict("records")
     key = f"series_{series_id}"
 
-    # Preserve existing directionFactor if set
-    existing = db.get(key, {})
-    directionFactor = existing.get("directionFactor", 1)
+    # Get existing entry if it exists to preserve direction setting
+    existing_entry = db.get(key, {})
+    existing_direction = existing_entry.get("direction", direction)
 
     db[key] = {
         "id": series_id,
         "name": name,
         "data": records,
-        "directionFactor": directionFactor
+        "direction": existing_direction  # Use existing direction or default
     }
 
     if "series_list" in db:
@@ -108,15 +123,39 @@ def store_series_data(series_id, df):
     else:
         db["series_list"] = [series_id]
 
+def update_series_direction(series_id, direction):
+    """
+    Update the direction property for a series.
+    """
+    key = f"series_{series_id}"
+    if key in db:
+        entry = db[key]
+        entry["direction"] = direction
+        db[key] = entry
+
 def refresh_series_data(series_id):
+    """
+    Re-fetch and store monthly data for a given series.
+    Preserves the existing direction setting.
+    """
     df = fetch_series_monthly(series_id)
     if df is not None:
-        store_series_data(series_id, df)
+        # Get current direction if it exists
+        current_direction = "positive"
+        key = f"series_{series_id}"
+        if key in db:
+            entry = db.get(key, {})
+            current_direction = entry.get("direction", "positive")
+
+        store_series_data(series_id, df, current_direction)
         print(f"Refreshed data for {series_id}")
     else:
         print(f"Failed to refresh data for {series_id}")
 
 def refresh_all_series():
+    """
+    Refresh data for all tracked series.
+    """
     if "series_list" in db:
         for sid in db["series_list"]:
             refresh_series_data(sid)
@@ -139,25 +178,25 @@ scheduler_thread.start()
 # ---------------------------------------
 def get_monthly_classifications(series_id):
     """
-    For the last MONTHS_BACK months, compute classification (red/green/grey).
-    Takes into account directionFactor (positive=good or positive=bad).
+    Return a list of (month_str, classification) for the last 24 months.
+    Takes into account the direction setting for the series.
     """
     key = f"series_{series_id}"
     entry = db.get(key)
     if not entry or "data" not in entry:
         return []
 
-    data = entry["data"]
-    data = sorted(data, key=lambda x: x["date"])
-    directionFactor = entry.get("directionFactor", 1)
+    data = entry["data"]  # list of {date: 'YYYY-MM', value: float}
+    direction = entry.get("direction", "positive")  # Default to positive if not specified
 
+    data = sorted(data, key=lambda x: x["date"])
     classifications = []
     prev_value = None
     for record in data[-MONTHS_BACK:]:
         month_str = record["date"]
         value = record["value"]
         if prev_value is not None:
-            c = classify_value(value, prev_value, direction_factor=directionFactor)
+            c = classify_value(value, prev_value, direction)
         else:
             c = "grey"
         classifications.append((month_str, c))
@@ -168,6 +207,9 @@ def get_monthly_classifications(series_id):
 # Composite Index Logic
 # ---------------------------------------
 def get_indicator_df(series_id):
+    """
+    Return a DataFrame with columns [date, value] from Replit DB for the last 24 months.
+    """
     entry = db.get(f"series_{series_id}")
     if not entry or "data" not in entry:
         return pd.DataFrame(columns=["date", "value"])
@@ -177,34 +219,58 @@ def get_indicator_df(series_id):
     return df
 
 def load_weights():
+    """
+    Load the user-defined weights from Replit DB. If none, return {}.
+    """
     return db.get("user_weights", {})
 
 def save_weights(new_weights):
+    """
+    Save the user-defined weights to Replit DB.
+    """
     db["user_weights"] = new_weights
 
 def get_composite_df(weights_dict):
     """
-    Weighted average time series for up to MONTHS_BACK months.
-    We also apply the directionFactor for each series (inverting if + or -).
+    Given a dict of {series_id: weight}, compute a weighted average time series.
+    Takes into account the direction of each indicator.
+    Return a DataFrame with columns [date, composite_value].
     """
     if not weights_dict:
         return pd.DataFrame(columns=["date", "composite_value"])
 
     combined_df = None
     for sid, w in weights_dict.items():
-        entry = db.get(f"series_{sid}", {})
-        directionFactor = entry.get("directionFactor", 1)
-
         df = get_indicator_df(sid)
         if df.empty:
             continue
-        # multiply 'value' by directionFactor
-        df["adjustedValue"] = df["value"] * directionFactor
 
-        # rename to sid so we can pivot
-        df = df.rename(columns={"adjustedValue": sid})
-        # remove original 'value' col to avoid confusion
-        df = df.drop(columns=["value"], errors="ignore")
+        # Get the direction for this indicator
+        key = f"series_{sid}"
+        entry = db.get(key, {})
+        direction = entry.get("direction", "positive")
+
+        # If direction is negative, invert the values so that increases are negative contributions
+        if direction == "negative":
+            # We invert by taking the negative of percent changes
+            # First, calculate percent change from first value
+            first_val = df['value'].iloc[0]
+            if first_val != 0:  # Avoid division by zero
+                df['adjusted_value'] = (df['value'] - first_val) / abs(first_val) * -1 + 1
+            else:
+                # If first value is zero, just use negative of the value
+                df['adjusted_value'] = -df['value']
+        else:
+            # For positive direction, just use regular percent change from first value
+            first_val = df['value'].iloc[0]
+            if first_val != 0:
+                df['adjusted_value'] = (df['value'] - first_val) / abs(first_val) + 1
+            else:
+                df['adjusted_value'] = df['value']
+
+        # Use the adjusted value for combining
+        df = df.rename(columns={"adjusted_value": sid})
+        df = df[["date", sid]]
 
         if combined_df is None:
             combined_df = df
@@ -214,8 +280,10 @@ def get_composite_df(weights_dict):
     if combined_df is None:
         return pd.DataFrame(columns=["date", "composite_value"])
 
+    # forward-fill + fill zeros
     combined_df = combined_df.ffill().fillna(0)
 
+    # Weighted sum
     composite_vals = []
     for i, row in combined_df.iterrows():
         total = 0
@@ -223,107 +291,393 @@ def get_composite_df(weights_dict):
             val = row.get(sid, 0)
             total += val * w
         composite_vals.append(total)
-
     combined_df["composite_value"] = composite_vals
     combined_df = combined_df[["date", "composite_value"]]
     combined_df = combined_df.sort_values("date")
 
-    # Trim to last MONTHS_BACK
+    # Optionally trim to last 24 months
     if len(combined_df) > MONTHS_BACK:
         combined_df = combined_df.iloc[-MONTHS_BACK:]
     return combined_df
 
 # ---------------------------------------
+# Custom Components
+# ---------------------------------------
+def create_legend():
+    """Create a color legend explaining the heatmap colors"""
+    legend_items = []
+    for color_name, color_value in [
+        ("Green", COLOR_SCHEME["green"]), 
+        ("Red", COLOR_SCHEME["red"]), 
+        ("Grey", COLOR_SCHEME["grey"])
+    ]:
+        legend_items.append(
+            html.Div([
+                html.Div(style={
+                    "backgroundColor": color_value,
+                    "width": "20px",
+                    "height": "20px",
+                    "display": "inline-block",
+                    "marginRight": "8px"
+                }),
+                html.Span(f"{color_name}: " + {
+                    "Green": "Positive trend",
+                    "Red": "Negative trend", 
+                    "Grey": "Neutral/No change"
+                }[color_name])
+            ], style={"marginRight": "15px", "display": "inline-block"})
+        )
+
+    return html.Div([
+        html.Div(legend_items, style={"marginBottom": "5px"}),
+        html.Div([
+            html.Span("Note: Colors are based on indicator direction settings. ", style={"fontStyle": "italic"}),
+            html.Span("For 'Increase is Positive' indicators, green means increasing. ", style={"fontStyle": "italic"}),
+            html.Span("For 'Increase is Negative' indicators, green means decreasing.", style={"fontStyle": "italic"})
+        ])
+    ], style={
+        "marginBottom": "15px",
+        "padding": "10px",
+        "backgroundColor": "#f8f9fa",
+        "borderRadius": "5px",
+        "border": "1px solid #dee2e6"
+    })
+
+def create_loading_container(component_id, loading_message="Loading..."):
+    """Create a container with loading animation"""
+    return html.Div([
+        dcc.Loading(
+            id=f"{component_id}-loading",
+            type="circle",
+            children=html.Div(id=component_id)
+        ),
+        html.Div(loading_message, id=f"{component_id}-message", style={"textAlign": "center", "display": "none"})
+    ])
+
+def create_direction_toggle(series_id, current_direction="positive"):
+    """Create a toggle switch for indicator direction"""
+    return html.Div([
+        html.Span("Direction: ", style={"marginRight": "5px"}),
+        dcc.RadioItems(
+            id=f"direction-toggle-{series_id}",
+            options=[
+                {'label': 'Increase is Positive', 'value': 'positive'},
+                {'label': 'Increase is Negative', 'value': 'negative'}
+            ],
+            value=current_direction,
+            inline=True,
+            style={"fontSize": "12px"}
+        )
+    ], style={"marginLeft": "10px", "display": "inline-block"})
+
+# ---------------------------------------
 # Dash App
 # ---------------------------------------
-app = dash.Dash(__name__, suppress_callback_exceptions=True)
+app = dash.Dash(
+    __name__, 
+    suppress_callback_exceptions=True,
+    meta_tags=[
+        {"name": "viewport", "content": "width=device-width, initial-scale=1"}
+    ]
+)
 server = app.server
+
+# Add CSS for better styling
+app.index_string = '''
+<!DOCTYPE html>
+<html>
+    <head>
+        {%metas%}
+        <title>Macroeconomic Indicator Dashboard</title>
+        {%favicon%}
+        {%css%}
+        <style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                margin: 0;
+                background-color: #f5f6f7;
+            }
+            .dashboard-container {
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 20px;
+                background-color: white;
+                box-shadow: 0 0 10px rgba(0,0,0,0.05);
+                border-radius: 8px;
+            }
+            .header {
+                padding: 15px 0;
+                margin-bottom: 20px;
+                border-bottom: 1px solid #eaeaea;
+            }
+            .controls-bar {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: 10px;
+                margin-bottom: 20px;
+                padding: 15px;
+                background-color: #f8f9fa;
+                border-radius: 8px;
+            }
+            .indicator-table {
+                width: 100%;
+                border-collapse: collapse;
+            }
+            .indicator-table th, .indicator-table td {
+                border: 1px solid #dee2e6;
+                padding: 8px;
+            }
+            .indicator-table th {
+                background-color: #e9ecef;
+                position: sticky;
+                top: 0;
+            }
+            .indicator-table tr:nth-child(even) {
+                background-color: #f2f2f2;
+            }
+            .indicator-table tr:hover {
+                background-color: #e2e6ea;
+            }
+            .navbar {
+                background-color: #343a40;
+                padding: 10px 20px;
+                margin-bottom: 20px;
+            }
+            .navbar a {
+                color: white;
+                text-decoration: none;
+                padding: 8px 15px;
+                border-radius: 4px;
+            }
+            .navbar a:hover {
+                background-color: #495057;
+            }
+            .navbar a.active {
+                background-color: #007bff;
+            }
+            .btn {
+                padding: 8px 16px;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-weight: 500;
+                transition: background-color 0.2s;
+            }
+            .btn-primary {
+                background-color: #007bff;
+                color: white;
+            }
+            .btn-primary:hover {
+                background-color: #0069d9;
+            }
+            .btn-secondary {
+                background-color: #6c757d;
+                color: white;
+            }
+            .btn-secondary:hover {
+                background-color: #5a6268;
+            }
+            .form-control {
+                padding: 8px;
+                border: 1px solid #ced4da;
+                border-radius: 4px;
+                font-size: 16px;
+            }
+            .chart-container {
+                margin-top: 30px;
+                padding: 15px 0px;
+                border: 1px solid #dee2e6;
+                border-radius: 8px;
+                background-color: white;
+            }
+            .tooltip {
+                position: relative;
+                display: inline-block;
+            }
+            .tooltip .tooltiptext {
+                visibility: hidden;
+                width: 200px;
+                background-color: #333;
+                color: #fff;
+                text-align: center;
+                border-radius: 6px;
+                padding: 5px;
+                position: absolute;
+                z-index: 1;
+                bottom: 125%;
+                left: 50%;
+                margin-left: -100px;
+                opacity: 0;
+                transition: opacity 0.3s;
+            }
+            .tooltip:hover .tooltiptext {
+                visibility: visible;
+                opacity: 1;
+            }
+            .direction-indicator {
+                font-size: 12px;
+                color: #666;
+                font-style: italic;
+                margin-left: 5px;
+            }
+            /* Toggle switch styling */
+            .switch {
+                position: relative;
+                display: inline-block;
+                width: 60px;
+                height: 24px;
+            }
+            .switch input {
+                opacity: 0;
+                width: 0;
+                height: 0;
+            }
+            .slider {
+                position: absolute;
+                cursor: pointer;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background-color: #ccc;
+                transition: .4s;
+                border-radius: 24px;
+            }
+            .slider:before {
+                position: absolute;
+                content: "";
+                height: 16px;
+                width: 16px;
+                left: 4px;
+                bottom: 4px;
+                background-color: white;
+                transition: .4s;
+                border-radius: 50%;
+            }
+            input:checked + .slider {
+                background-color: #2196F3;
+            }
+            input:checked + .slider:before {
+                transform: translateX(34px);
+            }
+        </style>
+    </head>
+    <body>
+        {%app_entry%}
+        <footer>
+            {%config%}
+            {%scripts%}
+            {%renderer%}
+        </footer>
+    </body>
+</html>
+'''
 
 app.layout = html.Div([
     dcc.Location(id="url", refresh=False),
     html.Div([
-        html.A("Dashboard Heatmap", href="/", style={"marginRight": "20px"}),
-        html.A("Composite Index", href="/composite"),
-    ], style={"marginBottom": "20px"}),
-
-    # We'll keep an 'X' close button for the modal
-    html.Button("×", id="close-modal-btn", style={"display": "none"}, n_clicks=0),
-
-    # A hidden dummy div to avoid duplicate callback outputs
-    html.Div(id="direction-dummy-output", style={"display": "none"}),
-
-    html.Div(id="page-content")
+        html.A("Dashboard Heatmap", id="nav-dashboard", href="/", className="nav-link"),
+        html.A("Composite Index", id="nav-composite", href="/composite", className="nav-link"),
+    ], className="navbar"),
+    # Hidden close button so Dash sees it on init
+    html.Button("Close Modal", id="close-modal-btn", style={"display": "none"}, className="btn btn-secondary", n_clicks=0),
+    html.Div(id="page-content", className="dashboard-container")
 ])
 
 # -------------------------------
 # Dashboard (Heatmap) Layout
 # -------------------------------
 def layout_dashboard():
+    # Add a header with dashboard title
+    header = html.Div([
+        html.H1("Macroeconomic Indicator Dashboard", style={"marginBottom": "10px"}),
+        html.P([
+            "Monitor key economic indicators and their trends. ",
+            html.Span("Click on a cell to see the detailed chart, or use the 'Open Modal' button for a larger view.",
+                     style={"fontStyle": "italic"})
+        ])
+    ], className="header")
+
     # A top panel for adding a new series and refreshing all
     controls_bar = html.Div([
-        dcc.Input(
-            id="new-series-id",
-            type="text",
-            placeholder="Enter FRED Series ID (e.g. UNRATE)",
-            style={"marginRight": "10px"}
-        ),
-        html.Button("Add Series", id="add-series-btn", n_clicks=0, style={"marginRight": "20px"}),
-        html.Button("Refresh All", id="refresh-all-btn", n_clicks=0),
-        html.Div(id="add-series-msg", style={"color": "blue", "marginTop": "10px"}),
-        html.Div(id="global-message", style={"color": "green", "marginTop": "10px"})
-    ], style={"marginBottom": "20px"})
+        html.Div([
+            html.Label("Add New Indicator:", style={"fontWeight": "bold", "marginRight": "10px"}),
+            dcc.Input(
+                id="new-series-id",
+                type="text",
+                placeholder="Enter FRED Series ID (e.g. UNRATE)",
+                className="form-control",
+                style={"width": "250px", "marginRight": "10px"}
+            ),
+            html.Button("Add Series", id="add-series-btn", n_clicks=0, className="btn btn-primary")
+        ]),
+        html.Div([
+            html.Button("Refresh All Data", id="refresh-all-btn", n_clicks=0, className="btn btn-secondary"),
+            html.Div(id="add-series-msg", style={"color": "#28a745", "marginLeft": "10px", "display": "inline-block"}),
+            html.Div(id="global-message", style={"color": "#28a745", "marginLeft": "10px", "display": "inline-block"})
+        ]),
+    ], className="controls-bar")
+
+    # Add color legend
+    legend = create_legend()
 
     if "series_list" not in db or not db["series_list"]:
         return html.Div([
+            header,
             controls_bar,
-            html.H3("No series tracked yet. Please add some or refresh.")
+            legend,
+            html.Div([
+                html.H3("No series tracked yet"),
+                html.P("Please add a series by entering a FRED Series ID above and clicking 'Add Series'"),
+                html.P([
+                    "Example FRED IDs to try: ",
+                    html.Code("UNRATE"), " (Unemployment Rate, Increase is Negative), ",
+                    html.Code("CPIAUCSL"), " (Consumer Price Index, Increase is Negative), ",
+                    html.Code("GDP"), " (Gross Domestic Product, Increase is Positive)"
+                ])
+            ], style={"textAlign": "center", "padding": "30px", "backgroundColor": "#f8f9fa", "borderRadius": "8px"})
         ])
 
+    # Generate list of months for the past 24 months
     base = datetime.date.today().replace(day=1)
     months_list = []
     for i in range(MONTHS_BACK, 0, -1):
         m = base - pd.DateOffset(months=i)
         months_list.append(m.strftime("%Y-%m"))
 
-    # CHANGED HERE: Reorder header columns.
-    header_cells = [
-        html.Th("Indicator"),
-        html.Th("Direction"),
-        html.Th("Actions"),
-        *[html.Th(m) for m in months_list]
-    ]
-    header = html.Tr(header_cells)
-
+    # Build table rows
     table_rows = []
-    for sid in db["series_list"]:
+    for idx, sid in enumerate(db["series_list"]):
         key = f"series_{sid}"
         entry = db.get(key, {})
+        # The stored 'name' field is the official series title
         series_name = entry.get("name", sid)
-        directionFactor = entry.get("directionFactor", 1)
-
-        # Build direction dropdown
-        direction_dropdown = dcc.Dropdown(
-            id=f"direction-dropdown-{sid}",
-            options=[
-                {"label": "Positive is Good", "value": 1},
-                {"label": "Positive is Bad",  "value": -1}
-            ],
-            value=directionFactor,
-            clearable=False,
-            style={"width": "150px"}
-        )
+        direction = entry.get("direction", "positive")
 
         monthly_class = dict(get_monthly_classifications(sid))
+
+        # 1) Create the row cells for each month (colored squares)
         row_cells = []
         for month_str in months_list:
             color = monthly_class.get(month_str, "grey")
+            # Use our enhanced color scheme
+            bg_color = COLOR_SCHEME.get(color, "#6c757d")
             cell_id = f"{sid}-{month_str}"
             row_cells.append(
                 html.Td(
                     id=cell_id,
+                    # Add tooltips for each cell
+                    children=html.Div(className="tooltip", children=[
+                        "",  # Empty string as placeholder
+                        html.Span(
+                            f"{sid}: {month_str}",
+                            className="tooltiptext"
+                        )
+                    ]),
                     style={
-                        "backgroundColor": color,
-                        "width": "50px",
+                        "backgroundColor": bg_color,
+                        "width": "30px",
                         "height": "25px",
                         "cursor": "pointer",
                         "textAlign": "center"
@@ -331,42 +685,75 @@ def layout_dashboard():
                 )
             )
 
+        # 2) Create the direction toggle for this indicator
+        direction_toggle = create_direction_toggle(sid, direction)
+
+        # 3) Add a final cell with modal button and direction toggle
         modal_btn_id = f"open-modal-{sid}"
         modal_button = html.Button(
             "Open Modal",
             id=modal_btn_id,
             n_clicks=0,
-            style={"marginLeft": "10px"}
+            className="btn btn-secondary",
+            style={"fontSize": "12px", "padding": "4px 8px"}
         )
 
-        # CHANGED HERE: Reorder table columns + narrower width on series name.
+        # Improved row styling with tooltip for full name
         table_rows.append(
             html.Tr(
                 [
-                    html.Td(
-                        series_name,
-                        style={
-                            "fontWeight": "bold",
-                            "whiteSpace": "normal",      # Allow text to wrap
-                            "wordWrap": "break-word",   # Break words that are too long
-                            "width": "150px"            # Narrower width (adjust as needed)
-                        }
-                    ),
-                    html.Td(direction_dropdown, style={"verticalAlign": "middle"}),
-                    html.Td(modal_button),
-                    *row_cells
+                    html.Td([
+                        html.Div(className="tooltip", children=[
+                            series_name,
+                            html.Span(series_name, className="tooltiptext")
+                        ]),
+                        html.Span(
+                            f" ({('Up+' if direction == 'positive' else 'Up-')})",
+                            className="direction-indicator"
+                        )
+                    ], style={
+                        "fontWeight": "bold",
+                        "whiteSpace": "nowrap",
+                        "width": "200px",  # Reduced width for better overall table display
+                        "overflow": "hidden",
+                        "textOverflow": "ellipsis"  # Add ellipsis for long names
+                    }),
+                    *row_cells,
+                    html.Td([
+                        modal_button,
+                        direction_toggle
+                    ])
                 ],
                 id=f"row-{sid}"
             )
         )
 
+    # Build the table header
+    header_cells = [html.Th("Indicator")] + [
+        html.Th(
+            m.split("-")[1],  # Just show the month, not the year
+            title=m  # Full date as tooltip
+        ) for m in months_list
+    ] + [html.Th("Actions")]
+    header = html.Tr(header_cells)
+
     return html.Div([
+        header,
         controls_bar,
-        html.Table(
-            [html.Thead(header), html.Tbody(table_rows)],
-            style={"borderCollapse": "collapse", "border": "1px solid #ccc"}
+        legend,
+        html.Div(
+            [
+                html.Table(
+                    [html.Thead(header), html.Tbody(table_rows)],
+                    className="indicator-table"
+                )
+            ],
+            style={"overflowX": "auto", "marginBottom": "20px"}
         ),
-        html.Div(id="inline-chart-container", style={"marginTop": "20px"}),
+        html.Div([
+            html.H3("Indicator Details", style={"marginBottom": "15px", "textAlign": "left"}),
+            html.Div(id="inline-chart-container", style={"textAlign": "left", "padding": "0px"})
+        ], className="chart-container", style={"textAlign": "left", "padding": "0px"}),
         html.Div(id="modal-container")
     ])
 
@@ -375,53 +762,118 @@ def layout_dashboard():
 # -------------------------------
 def layout_composite():
     series_list = db.get("series_list", [])
-    weight_data = db.get("user_weights", {})
+    weight_data = load_weights()
 
-    # If the number of series changed, reset to equal weighting
-    if series_list and len(series_list) != len(weight_data):
+    # If empty, default to equal
+    if not weight_data and series_list:
         default_w = 1.0 / len(series_list)
-        new_wdict = {}
         for sid in series_list:
-            new_wdict[sid] = default_w
-        save_weights(new_wdict)
-        weight_data = new_wdict
+            weight_data[sid] = default_w
 
     rows = []
     for sid in series_list:
         wval = weight_data.get(sid, 0)
+
+        # Get the full name and direction for the indicator
+        entry = db.get(f"series_{sid}", {})
+        series_name = entry.get("name", sid)
+        direction = entry.get("direction", "positive")
+
         rows.append(html.Div([
-            html.Span(sid, style={"display": "inline-block", "width": "150px"}),
+            html.Div([
+                html.Div(className="tooltip", children=[
+                    html.Span(sid, style={"fontWeight": "bold"}),
+                    html.Span(series_name, className="tooltiptext")
+                ]),
+                html.Span(
+                    f" ({('Increase is Positive' if direction == 'positive' else 'Increase is Negative')})",
+                    className="direction-indicator"
+                )
+            ], style={"width": "300px", "display": "inline-block"}),
             dcc.Input(
                 id=f"weight-input-{sid}",
                 type="number",
                 value=wval,
                 min=0, max=1, step=0.01,
-                style={"width": "80px", "marginRight": "20px"}
+                className="form-control",
+                style={"width": "100px", "marginRight": "20px"}
             )
-        ], style={"marginBottom": "5px"}))
+        ], style={"marginBottom": "10px", "display": "flex", "alignItems": "center"}))
+
+    header = html.Div([
+        html.H1("Composite Economic Index", style={"marginBottom": "10px"}),
+        html.P([
+            "This page displays a weighted average of all your tracked indicators, adjusted for their direction. ",
+            "For indicators where 'Increase is Negative' (like inflation), the values are inverted so that ",
+            "improvements always contribute positively to the composite index."
+        ])
+    ], className="header")
 
     return html.Div([
-        html.H3("Composite Index"),
-        html.Div(id="composite-chart-container"),
+        header,
         html.Div([
-            html.H4("Adjust Weights (normalized to sum=1)"),
+            html.H3("Composite Index Chart"),
+            create_loading_container("composite-chart-container")
+        ], className="chart-container"),
+        html.Div([
+            html.H3("Adjust Indicator Weights", style={"marginBottom": "15px"}),
+            html.P("Set the relative importance of each indicator in the composite index. Weights will be normalized to sum to 1."),
             html.Div(rows),
-            html.Button("Apply & Save Weights", id="save-weights-btn", n_clicks=0),
-            html.Div(id="weights-save-msg", style={"color": "green", "marginTop": "10px"})
-        ], style={"marginTop": "30px"})
+            html.Div([
+                html.Button("Apply & Save Weights", id="save-weights-btn", n_clicks=0, className="btn btn-primary"),
+                html.Button("Reset to Equal Weights", id="reset-weights-btn", n_clicks=0, 
+                            className="btn btn-secondary", style={"marginLeft": "10px"})
+            ], style={"marginTop": "15px"}),
+            html.Div(id="weights-save-msg", style={"color": "#28a745", "marginTop": "10px"})
+        ], className="chart-container")
     ])
 
 # -------------------------------
 # Routing
 # -------------------------------
-@app.callback(Output("page-content", "children"), Input("url", "pathname"))
+@app.callback(
+    [Output("page-content", "children"),
+     Output("nav-dashboard", "className"),
+     Output("nav-composite", "className")],
+    Input("url", "pathname")
+)
 def display_page(pathname):
     if pathname == "/composite":
-        return layout_composite()
-    return layout_dashboard()
+        return layout_composite(), "nav-link", "nav-link active"
+    return layout_dashboard(), "nav-link active", "nav-link"
 
 # -------------------------------
-# Cell Click => Inline Chart
+# Callback: Direction Toggle
+# -------------------------------
+@app.callback(
+    Output("global-message", "children"),
+    [Input(f"direction-toggle-{sid}", "value") for sid in db.get("series_list", [])],
+    [State(f"direction-toggle-{sid}", "id") for sid in db.get("series_list", [])]
+)
+def update_direction(*args):
+    """
+    Update the direction setting for an indicator when toggled.
+    """
+    ctx = callback_context
+    if not ctx.triggered:
+        return ""
+
+    # Get the toggle that was changed and its new value
+    trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
+    new_value = ctx.triggered[0]["value"]  # Get the value from the triggered input
+
+    # Get series ID from trigger_id
+    series_id = trigger_id.replace("direction-toggle-", "")
+
+    try:
+        # Update the direction in the database
+        update_series_direction(series_id, new_value)
+        return f"Updated direction for {series_id} to '{new_value}'"
+    except Exception as e:
+        return f"Error updating direction: {str(e)}"
+
+# -------------------------------
+# Callback: Cell Click => Inline Chart
 # -------------------------------
 @app.callback(
     Output("inline-chart-container", "children"),
@@ -433,24 +885,59 @@ def display_page(pathname):
     prevent_initial_call=True
 )
 def handle_cell_click(*args):
+    """
+    Single-click a cell => show an inline chart below the table.
+    """
     ctx = callback_context
     if not ctx.triggered:
         return ""
+
     trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
     parts = trigger_id.split("-")
     if len(parts) < 2:
         return ""
+
     sid = parts[0]
-    month_str = "-".join(parts[1:])
+    month_str = "-".join(parts[1:])  # e.g. 2023-01
+
     df = get_indicator_df(sid)
     if df.empty:
-        return f"No data for {sid}"
-    fig = px.line(df, x="date", y="value", title=f"{sid} - Last {MONTHS_BACK} Months")
-    fig.update_layout(height=400)
+        return html.Div([
+            html.Div("No data available for this indicator", 
+                     style={"textAlign": "center", "padding": "20px", "color": "#dc3545"})
+        ])
+
+    # Get the full name and direction for the indicator
+    entry = db.get(f"series_{sid}", {})
+    series_name = entry.get("name", sid)
+    direction = entry.get("direction", "positive")
+
+    # Improve chart styling
+    fig = px.line(df, x="date", y="value", title=f"{series_name} ({sid})")
+    fig.update_layout(
+        height=400,
+        margin=dict(l=0, r=40, t=60, b=40),  # Reduce left margin to 0
+        hovermode="x unified",
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        title={"font": {"size": 18, "color": "#333"}, "x": 0},  # Position title at far left
+        xaxis={"title": "Date", "showgrid": True, "gridcolor": "#eee"},
+        yaxis={"title": "Value", "showgrid": True, "gridcolor": "#eee"}
+    )
+    fig.update_traces(line=dict(width=2))
+
+    # Add a note about the direction interpretation
+    direction_note = html.Div([
+        html.Span(
+            f"Note: For this indicator, an increase is {'positive' if direction == 'positive' else 'negative'}.",
+            style={"fontStyle": "italic", "fontSize": "14px", "color": "#666"}
+        )
+    ], style={"marginTop": "10px", "textAlign": "center"})
+
     return html.Div([
-        html.H4(f"Indicator: {sid} (Clicked {month_str})"),
-        dcc.Graph(figure=fig)
-    ])
+        dcc.Graph(figure=fig, config={"displayModeBar": True, "responsive": True}),
+        direction_note
+    ], style={"textAlign": "left"})  # Align chart container to the left
 
 # -------------------------------
 # Single Callback: Open/Close Modal
@@ -472,40 +959,34 @@ def manage_modal(n_close, *open_clicks):
 
     trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
     if trigger_id == "close-modal-btn":
-        # Close the modal
         return ""
 
-    # Otherwise, it's an open-modal-X button
     sid = trigger_id.replace("open-modal-", "")
     df = get_indicator_df(sid)
     if df.empty:
         return ""
 
-    fig = px.line(
-        df,
-        x="date",
-        y="value",
-        title=f"{sid} - Modal View (Last {MONTHS_BACK} Months)"
-    )
-    fig.update_layout(height=600, margin=dict(l=40, r=40, t=40, b=40))
+    # Get the full name and direction for the indicator
+    entry = db.get(f"series_{sid}", {})
+    series_name = entry.get("name", sid)
+    direction = entry.get("direction", "positive")
 
-    # Absolutely-positioned 'X' button in the top-right corner
-    x_button = html.Button(
-        "×",  # or "X"
-        id="close-modal-btn",
-        n_clicks=0,
-        style={
-            "position": "absolute",
-            "top": "10px",
-            "right": "10px",
-            "fontSize": "24px",
-            "border": "none",
-            "backgroundColor": "transparent",
-            "color": "#000",
-            "cursor": "pointer",
-            "zIndex": 100000
-        }
+    # Enhanced chart with better styling
+    fig = px.line(df, x="date", y="value", title=f"{series_name} ({sid})")
+    fig.update_layout(
+        height=600,
+        margin=dict(l=0, r=40, t=60, b=40),  # Reduce left margin to 0
+        hovermode="x unified",
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        title={"font": {"size": 20, "color": "#333"}, "x": 0},  # Position title at far left
+        xaxis={"title": "Date", "showgrid": True, "gridcolor": "#eee"},
+        yaxis={"title": "Value", "showgrid": True, "gridcolor": "#eee"}
     )
+    fig.update_traces(line=dict(width=3))
+
+    # Add a note about the direction
+    direction_note = f"For this indicator, an increase is {'positive' if direction == 'positive' else 'negative'}."
 
     return html.Div([
         html.Div(
@@ -515,81 +996,213 @@ def manage_modal(n_close, *open_clicks):
                 "left": 0,
                 "width": "100%",
                 "height": "100%",
-                "backgroundColor": "rgba(0,0,0,0.5)",
-                "zIndex": 9999
+                "backgroundColor": "rgba(0,0,0,0.7)",
+                "zIndex": 9999,
+                "display": "flex",
+                "justifyContent": "center",
+                "alignItems": "center"
             },
             children=[
                 html.Div([
-                    x_button,
-                    dcc.Graph(figure=fig)
+                    html.Div([
+                        html.H3(f"{series_name}", style={"margin": "0", "flex": "1"}),
+                        html.Button(
+                            "×",
+                            id="close-modal-btn",
+                            n_clicks=0,
+                            style={
+                                "background": "none",
+                                "border": "none",
+                                "fontSize": "30px",
+                                "cursor": "pointer",
+                                "color": "#333"
+                            }
+                        )
+                    ], style={
+                        "display": "flex", 
+                        "justifyContent": "space-between", 
+                        "alignItems": "center",
+                        "borderBottom": "1px solid #eaeaea",
+                        "padding": "10px 20px"
+                    }),
+                    dcc.Graph(figure=fig, config={"displayModeBar": True, "responsive": True}),
+                    html.Div(
+                        direction_note,
+                        style={
+                            "textAlign": "center",
+                            "padding": "10px",
+                            "fontStyle": "italic",
+                            "color": "#666"
+                        }
+                    )
                 ],
                 style={
                     "position": "relative",
                     "margin": "50px auto",
-                    "padding": "20px",
-                    "width": "80%",
+                    "width": "90%",
+                    "maxWidth": "1200px",
+                    "maxHeight": "90vh",
                     "backgroundColor": "#fff",
-                    "borderRadius": "8px"
+                    "borderRadius": "8px",
+                    "overflow": "hidden",
+                    "boxShadow": "0 4px 20px rgba(0,0,0,0.2)",
+                    "textAlign": "left"  # Align modal content to the left
                 })
             ]
         )
     ])
 
 # -------------------------------
-# Unified Callback for Composite
+# Composite Page Callbacks
 # -------------------------------
 @app.callback(
     [Output("weights-save-msg", "children"),
      Output("composite-chart-container", "children")],
     [Input("save-weights-btn", "n_clicks"),
+     Input("reset-weights-btn", "n_clicks"),
      Input("url", "pathname")],
     [State(f"weight-input-{sid}", "value") for sid in db.get("series_list", [])]
 )
-def update_composite(n_clicks, pathname, *weight_values):
+def update_composite(n_clicks, n_reset, pathname, *weight_values):
+    """
+    Handle composite page interactions:
+    - Page load on /composite
+    - Saving weights when user clicks 'Apply & Save Weights'
+    - Resetting weights to equal when user clicks 'Reset to Equal Weights'
+    """
+    # If we're not on /composite, return empty
     if pathname != "/composite":
         return "", ""
+
     series_list = db.get("series_list", [])
     if not series_list:
-        return "No series found to weight.", ""
-    stored_weights = db.get("user_weights", {})
+        return "No series found to weight.", html.Div("Please add indicators on the dashboard page first.")
+
     ctx = callback_context
     if not ctx.triggered:
-        comp_df = get_composite_df(stored_weights)
-        if comp_df.empty:
-            return "No data to display in composite.", ""
-        fig = px.line(comp_df, x="date", y="composite_value",
-                      title=f"Composite Index (Last {MONTHS_BACK} Months)")
-        fig.update_layout(height=400)
-        return "", dcc.Graph(figure=fig)
-    trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
-    if trigger_id == "url":
-        comp_df = get_composite_df(stored_weights)
-        if comp_df.empty:
-            return "No data to display in composite.", ""
-        fig = px.line(comp_df, x="date", y="composite_value",
-                      title=f"Composite Index (Last {MONTHS_BACK} Months)")
-        fig.update_layout(height=400)
-        return "", dcc.Graph(figure=fig)
+        # No triggers => just load existing
+        stored_weights = load_weights()
 
-    # user clicked "save-weights-btn"
-    weight_values = [wv if wv else 0 for wv in weight_values]
+        # If empty, default to equal
+        if not stored_weights and series_list:
+            default_w = 1.0 / len(series_list)
+            for sid in series_list:
+                stored_weights[sid] = default_w
+            save_weights(stored_weights)
+
+        comp_df = get_composite_df(stored_weights)
+        if comp_df.empty:
+            return "No data to display in composite.", html.Div("No data available for composite index.")
+
+        # Improved chart styling
+        fig = px.line(comp_df, x="date", y="composite_value", title="Composite Economic Index")
+        fig.update_layout(
+            height=400,
+            margin=dict(l=0, r=40, t=60, b=40),  # Reduce left margin to 0
+            hovermode="x unified",
+            plot_bgcolor="white",
+            paper_bgcolor="white",
+            title={"font": {"size": 18, "color": "#333"}, "x": 0},  # Position title at far left
+            xaxis={"title": "Date", "showgrid": True, "gridcolor": "#eee"},
+            yaxis={"title": "Index Value", "showgrid": True, "gridcolor": "#eee"}
+        )
+        fig.update_traces(line=dict(width=3, color="#007bff"))
+
+        return "", dcc.Graph(figure=fig, config={"displayModeBar": True, "responsive": True})
+
+    trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
+
+    # If triggered by url => page load
+    if trigger_id == "url":
+        stored_weights = load_weights()
+
+        # If empty, default to equal
+        if not stored_weights and series_list:
+            default_w = 1.0 / len(series_list)
+            for sid in series_list:
+                stored_weights[sid] = default_w
+            save_weights(stored_weights)
+
+        comp_df = get_composite_df(stored_weights)
+        if comp_df.empty:
+            return "No data to display in composite.", html.Div("No data available for composite index.")
+
+        # Enhanced chart
+        fig = px.line(comp_df, x="date", y="composite_value", title="Composite Economic Index")
+        fig.update_layout(
+            height=400,
+            margin=dict(l=0, r=40, t=60, b=40),  # Reduce left margin to 0
+            hovermode="x unified",
+            plot_bgcolor="white",
+            paper_bgcolor="white",
+            title={"font": {"size": 18, "color": "#333"}, "x": 0},  # Position title at far left
+            xaxis={"title": "Date", "showgrid": True, "gridcolor": "#eee"},
+            yaxis={"title": "Index Value", "showgrid": True, "gridcolor": "#eee"}
+        )
+        fig.update_traces(line=dict(width=3, color="#007bff"))
+
+        return "", dcc.Graph(figure=fig, config={"displayModeBar": True, "responsive": True})
+
+    # If triggered by reset button
+    if trigger_id == "reset-weights-btn":
+        default_w = 1.0 / len(series_list)
+        new_wdict = {sid: default_w for sid in series_list}
+        save_weights(new_wdict)
+
+        comp_df = get_composite_df(new_wdict)
+        if comp_df.empty:
+            return "Weights reset to equal. (No data available)", html.Div("No data available for composite index.")
+
+        fig = px.line(comp_df, x="date", y="composite_value", title="Composite Economic Index")
+        fig.update_layout(
+            height=400,
+            margin=dict(l=0, r=40, t=60, b=40),  # Reduce left margin to 0
+            hovermode="x unified",
+            plot_bgcolor="white",
+            paper_bgcolor="white",
+            title={"font": {"size": 18, "color": "#333"}, "x": 0},  # Position title at far left
+            xaxis={"title": "Date", "showgrid": True, "gridcolor": "#eee"},
+            yaxis={"title": "Index Value", "showgrid": True, "gridcolor": "#eee"}
+        )
+        fig.update_traces(line=dict(width=3, color="#007bff"))
+
+        return "Weights reset to equal values.", dcc.Graph(figure=fig, config={"displayModeBar": True, "responsive": True})
+
+    # Otherwise, user clicked "save-weights-btn"
+    weight_values = [float(wv) if wv is not None else 0 for wv in weight_values]
     s = sum(weight_values)
     if s > 0:
         weight_values = [wv / s for wv in weight_values]
+    else:
+        # If all weights are 0, revert to equal weights
+        weight_values = [1.0 / len(series_list) for _ in series_list]
+
     new_wdict = {}
     for sid, wv in zip(series_list, weight_values):
         new_wdict[sid] = wv
     save_weights(new_wdict)
+
     comp_df = get_composite_df(new_wdict)
     if comp_df.empty:
-        return "Weights saved. (Composite empty)", ""
-    fig = px.line(comp_df, x="date", y="composite_value",
-                  title=f"Composite Index (Last {MONTHS_BACK} Months)")
-    fig.update_layout(height=400)
-    return "Weights saved.", dcc.Graph(figure=fig)
+        return "Weights saved. (No data available)", html.Div("No data available for composite index.")
+
+    fig = px.line(comp_df, x="date", y="composite_value", title="Composite Economic Index")
+    fig.update_layout(
+        height=400,
+        margin=dict(l=40, r=40, t=60, b=40),
+        hovermode="x unified",
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        title={"font": {"size": 18, "color": "#333"}},
+        xaxis={"title": "Date", "showgrid": True, "gridcolor": "#eee"},
+        yaxis={"title": "Index Value", "showgrid": True, "gridcolor": "#eee"}
+    )
+    fig.update_traces(line=dict(width=3, color="#007bff"))
+
+    return "Weights saved successfully.", dcc.Graph(figure=fig, config={"displayModeBar": True, "responsive": True})
 
 # -------------------------------
-# Callback: Add Series & Refresh All
+# Callbacks for Add Series & Refresh All
 # -------------------------------
 @app.callback(
     Output("add-series-msg", "children"),
@@ -598,50 +1211,27 @@ def update_composite(n_clicks, pathname, *weight_values):
     prevent_initial_call=True
 )
 def add_series(n_clicks, new_id):
+    """
+    Add a new FRED series by ID, fetch & store it in DB.
+    """
     if not new_id:
         return "Please enter a FRED Series ID."
-    new_id = new_id.strip()
-    refresh_series_data(new_id)
-    return f"Added/refreshed series: {new_id}"
+    new_id = new_id.strip().upper()  # Normalize to uppercase for FRED IDs
 
-@app.callback(
-    Output("global-message", "children"),
-    Input("refresh-all-btn", "n_clicks"),
-    prevent_initial_call=True
-)
-def do_refresh_all(n_clicks):
-    refresh_all_series()
-    return "All tracked series have been refreshed."
-
-# -------------------------------
-# Callback: Update directionFactor
-# -------------------------------
-@app.callback(
-    Output("direction-dummy-output", "children"),
-    [
-        Input(f"direction-dropdown-{sid}", "value")
-        for sid in db.get("series_list", [])
-    ],
-    prevent_initial_call=True
-)
-def set_directions(*new_values):
-    """
-    When a user changes a 'Positive is Good/Bad' dropdown,
-    store directionFactor in the DB for each series.
-    Then return an empty string to the hidden dummy output.
-    """
-    series_list = db.get("series_list", [])
-    if not series_list:
-        return ""
-    for sid, val in zip(series_list, new_values):
-        key = f"series_{sid}"
-        entry = db.get(key, {})
-        entry["directionFactor"] = val  # update
-        db[key] = entry
-    return ""
+    try:
+        refresh_series_data(new_id)
+        # Check if it was actually added
+        if f"series_{new_id}" in db:
+            entry = db.get(f"series_{new_id}", {})
+            series_name = entry.get("name", new_id)
+            return f"Added: {series_name} ({new_id})"
+        else:
+            return f"Failed to add series: {new_id}. Please check the ID and try again."
+    except Exception as e:
+        return f"Error: {str(e)}"
 
 # ---------------------------------------
-# Run
+# Run Server
 # ---------------------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8050))
