@@ -17,7 +17,20 @@ FRED_API_KEY = os.environ.get("FRED_API_KEY", "")
 fred = Fred(api_key=FRED_API_KEY)
 
 # We'll fetch data for the last X years (monthly)
-MONTHS_BACK = 60
+def get_months_back():
+    """Get the MONTHS_BACK setting from DB, or use default."""
+    return db.get("settings_months_back", 60)
+
+def set_months_back(value):
+    """Set the MONTHS_BACK setting in DB."""
+    try:
+        value = int(value)
+        if value < 1:
+            value = 1
+        db["settings_months_back"] = value
+        return True
+    except:
+        return False
 
 # Color scheme for classifications
 COLOR_SCHEME = {
@@ -26,6 +39,14 @@ COLOR_SCHEME = {
     "yellow": "#ffc107",  # Caution/Mixed signals
     "grey": "#6c757d"     # Neutral/No significant change
 }
+
+# ---------------------------------------
+# Logging Function
+# ---------------------------------------
+def log_message(message, level="INFO"):
+    """Log a message with timestamp for better troubleshooting."""
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] [{level}] {message}")
 
 # ---------------------------------------
 # Classification Function
@@ -67,7 +88,7 @@ def get_series_name(series_id):
         info = fred.get_series_info(series_id)
         return info.get("title", series_id)
     except Exception as e:
-        print(f"Warning: could not fetch series info for {series_id}: {e}")
+        log_message(f"Warning: could not fetch series info for {series_id}: {e}", "WARNING")
         return series_id
 
 # ---------------------------------------
@@ -75,22 +96,34 @@ def get_series_name(series_id):
 # ---------------------------------------
 def fetch_series_monthly(series_id):
     """
-    Fetch up to 2 years of monthly data from FRED for the given series_id.
+    Fetch up to X months of monthly data from FRED for the given series_id.
     Return a DataFrame with columns [date, value].
     """
+    months_back = get_months_back()  # Get current setting from DB
+    log_message(f"Fetching {months_back} months of data for {series_id}")
+
     try:
         end_date = datetime.datetime.today()
-        start_date = end_date - pd.DateOffset(months=MONTHS_BACK + 1)
+        start_date = end_date - pd.DateOffset(months=months_back + 1)
+        log_message(f"Date range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+
         raw_series = fred.get_series(series_id, observation_start=start_date, observation_end=end_date)
+        log_message(f"Received {len(raw_series)} observations from FRED")
+
         df = raw_series.reset_index()
         df.columns = ["date", "value"]
         # Convert to monthly frequency explicitly (month end)
         df = df.set_index("date").resample("ME").last().dropna().reset_index()
         df["date"] = df["date"].dt.strftime("%Y-%m")  # store as YYYY-MM
         df = df.sort_values("date")
+        log_message(f"Processed into {len(df)} monthly records")
+
+        if len(df) > 0:
+            log_message(f"Date range of processed data: {df['date'].iloc[0]} to {df['date'].iloc[-1]}")
+
         return df
     except Exception as e:
-        print(f"Error fetching monthly series {series_id}: {e}")
+        log_message(f"Error fetching monthly series {series_id}: {e}", "ERROR")
         return None
 
 def store_series_data(series_id, df, direction="positive"):
@@ -99,7 +132,11 @@ def store_series_data(series_id, df, direction="positive"):
     Now includes direction parameter.
     """
     if df is None:
-        return
+        log_message(f"Cannot store None dataframe for {series_id}", "ERROR")
+        return False
+
+    log_message(f"Storing data for {series_id}, records: {len(df)}")
+
     name = get_series_name(series_id)  # <--- Fetch the official title
     records = df.to_dict("records")
     key = f"series_{series_id}"
@@ -120,46 +157,94 @@ def store_series_data(series_id, df, direction="positive"):
         if series_id not in s_list:
             s_list.append(series_id)
             db["series_list"] = s_list
+            log_message(f"Added {series_id} to series_list")
     else:
         db["series_list"] = [series_id]
+        log_message(f"Created new series_list with {series_id}")
+
+    return True
 
 def update_series_direction(series_id, direction):
     """
     Update the direction property for a series.
     """
+    log_message(f"Updating direction for {series_id} to {direction}")
+
     key = f"series_{series_id}"
     if key in db:
         entry = db[key]
         entry["direction"] = direction
         db[key] = entry
+        log_message(f"Direction updated successfully")
+        return True
+    else:
+        log_message(f"Failed to update direction: {series_id} not found in database", "WARNING")
+        return False
 
 def refresh_series_data(series_id):
     """
     Re-fetch and store monthly data for a given series.
     Preserves the existing direction setting.
     """
-    df = fetch_series_monthly(series_id)
-    if df is not None:
-        # Get current direction if it exists
-        current_direction = "positive"
-        key = f"series_{series_id}"
-        if key in db:
-            entry = db.get(key, {})
-            current_direction = entry.get("direction", "positive")
+    log_message(f"Starting refresh for {series_id}")
+    months_back = get_months_back()
+    log_message(f"Using MONTHS_BACK={months_back}")
 
-        store_series_data(series_id, df, current_direction)
-        print(f"Refreshed data for {series_id}")
-    else:
-        print(f"Failed to refresh data for {series_id}")
+    try:
+        df = fetch_series_monthly(series_id)
+
+        if df is not None and not df.empty:
+            log_message(f"Fetched {len(df)} records for {series_id}, date range: {df['date'].iloc[0]} to {df['date'].iloc[-1]}")
+
+            # Get current direction if it exists
+            current_direction = "positive"
+            key = f"series_{series_id}"
+            if key in db:
+                entry = db.get(key, {})
+                current_direction = entry.get("direction", "positive")
+
+                # Compare with existing data
+                if "data" in entry and entry["data"]:
+                    old_df = pd.DataFrame(entry["data"])
+                    if not old_df.empty:
+                        log_message(f"Previous data had {len(old_df)} records, date range: {old_df['date'].iloc[0]} to {old_df['date'].iloc[-1]}")
+                    else:
+                        log_message("Previous data was empty or invalid")
+                else:
+                    log_message("No previous data found")
+            else:
+                log_message(f"No existing entry for {series_id}")
+
+            store_series_data(series_id, df, current_direction)
+            log_message(f"Successfully stored updated data for {series_id}")
+            return True
+        else:
+            log_message(f"Failed to fetch data for {series_id} - returned empty dataset", "ERROR")
+            return False
+    except Exception as e:
+        log_message(f"Error refreshing data for {series_id}: {str(e)}", "ERROR")
+        return False
 
 def refresh_all_series():
     """
     Refresh data for all tracked series.
     """
+    log_message("Starting refresh for all series")
+
     if "series_list" in db:
-        for sid in db["series_list"]:
-            refresh_series_data(sid)
-    print("All series refreshed.")
+        series_list = db["series_list"]
+        log_message(f"Found {len(series_list)} series to refresh")
+
+        success_count = 0
+        for sid in series_list:
+            if refresh_series_data(sid):
+                success_count += 1
+
+        log_message(f"Completed refresh: {success_count}/{len(series_list)} series successfully updated")
+    else:
+        log_message("No series found to refresh", "WARNING")
+
+    return True
 
 # ---------------------------------------
 # Scheduler for Weekly Updates
@@ -178,7 +263,7 @@ scheduler_thread.start()
 # ---------------------------------------
 def get_monthly_classifications(series_id):
     """
-    Return a list of (month_str, classification) for the last 24 months.
+    Return a list of (month_str, classification) for the last X months.
     Takes into account the direction setting for the series.
     """
     key = f"series_{series_id}"
@@ -190,9 +275,11 @@ def get_monthly_classifications(series_id):
     direction = entry.get("direction", "positive")  # Default to positive if not specified
 
     data = sorted(data, key=lambda x: x["date"])
+    months_back = get_months_back()
+
     classifications = []
     prev_value = None
-    for record in data[-MONTHS_BACK:]:
+    for record in data[-months_back:]:
         month_str = record["date"]
         value = record["value"]
         if prev_value is not None:
@@ -208,7 +295,7 @@ def get_monthly_classifications(series_id):
 # ---------------------------------------
 def get_indicator_df(series_id):
     """
-    Return a DataFrame with columns [date, value] from Replit DB for the last 24 months.
+    Return a DataFrame with columns [date, value] from Replit DB for all available months.
     """
     entry = db.get(f"series_{series_id}")
     if not entry or "data" not in entry:
@@ -295,9 +382,10 @@ def get_composite_df(weights_dict):
     combined_df = combined_df[["date", "composite_value"]]
     combined_df = combined_df.sort_values("date")
 
-    # Optionally trim to last 24 months
-    if len(combined_df) > MONTHS_BACK:
-        combined_df = combined_df.iloc[-MONTHS_BACK:]
+    # Optionally trim to last X months
+    months_back = get_months_back()
+    if len(combined_df) > months_back:
+        combined_df = combined_df.iloc[-months_back:]
     return combined_df
 
 # ---------------------------------------
@@ -617,6 +705,26 @@ def layout_dashboard():
             html.Div(id="add-series-msg", style={"color": "#28a745", "marginLeft": "10px", "display": "inline-block"}),
             html.Div(id="global-message", style={"color": "#28a745", "marginLeft": "10px", "display": "inline-block"})
         ]),
+        # Add months back controls
+        html.Div([
+            html.Label("Months to Display:", style={"fontWeight": "bold", "marginRight": "10px"}),
+            dcc.Input(
+                id="months-back-input",
+                type="number",
+                value=get_months_back(),
+                min=1,
+                max=300,
+                step=1,
+                className="form-control",
+                style={"width": "80px", "marginRight": "10px"}
+            ),
+            html.Button(
+                "Apply & Refresh All",
+                id="update-months-back-btn",
+                n_clicks=0,
+                className="btn btn-primary"
+            )
+        ], style={"display": "flex", "alignItems": "center", "marginLeft": "20px"})
     ], className="controls-bar")
 
     # Add color legend
@@ -639,10 +747,31 @@ def layout_dashboard():
             ], style={"textAlign": "center", "padding": "30px", "backgroundColor": "#f8f9fa", "borderRadius": "8px"})
         ])
 
-    # Generate list of months for the past 24 months
+    # Add toggle for showing all months vs recent
+    months_back = get_months_back()
+    max_display_months = 60  # Maximum months to show in the grid at once
+
+    display_toggle = html.Div([
+        html.Label("Time Display:", style={"fontWeight": "bold", "marginRight": "10px"}),
+        dcc.RadioItems(
+            id="show-all-months-toggle",
+            options=[
+                {'label': f'Show Recent (max {max_display_months} months)', 'value': 'recent'},
+                {'label': f'Show All ({months_back} months)', 'value': 'all' if months_back <= max_display_months * 2 else 'paginated'}
+            ],
+            value='recent',
+            inline=True
+        )
+    ], style={"marginBottom": "15px"})
+
+    # Add container for the month headers
+    month_headers_container = html.Div(id="month-columns-container")
+
+    # Generate list of months for the past 24 months (default view)
+    # This will be updated by the callback based on the toggle
     base = datetime.date.today().replace(day=1)
     months_list = []
-    for i in range(MONTHS_BACK, 0, -1):
+    for i in range(min(months_back, max_display_months), 0, -1):
         m = base - pd.DateOffset(months=i)
         months_list.append(m.strftime("%Y-%m"))
 
@@ -735,17 +864,22 @@ def layout_dashboard():
             title=m  # Full date as tooltip
         ) for m in months_list
     ] + [html.Th("Actions")]
-    header = html.Tr(header_cells)
+
+    # Store initial header
+    header = html.Tr(header_cells, id="month-header-row")
 
     return html.Div([
         header,
         controls_bar,
         legend,
+        display_toggle,
+        month_headers_container,
         html.Div(
             [
                 html.Table(
                     [html.Thead(header), html.Tbody(table_rows)],
-                    className="indicator-table"
+                    className="indicator-table",
+                    id="indicator-table"
                 )
             ],
             style={"overflowX": "auto", "marginBottom": "20px"}
@@ -843,12 +977,83 @@ def display_page(pathname):
     return layout_dashboard(), "nav-link active", "nav-link"
 
 # -------------------------------
-# Callback: Direction Toggle
+# Callback: Display Toggle
+# -------------------------------
+@app.callback(
+    Output("month-header-row", "children"),
+    [Input("show-all-months-toggle", "value")],
+    prevent_initial_call=True
+)
+def update_months_display(show_mode):
+    """
+    Update the header columns based on display mode.
+    """
+    # Calculate how many months to show
+    months_back = get_months_back()
+    max_display_months = 60
+
+    if show_mode == 'all':
+        display_months = months_back
+    else:
+        display_months = min(max_display_months, months_back)
+
+    # Generate list of months
+    base = datetime.date.today().replace(day=1)
+    months_list = []
+    for i in range(display_months, 0, -1):
+        m = base - pd.DateOffset(months=i)
+        months_list.append(m.strftime("%Y-%m"))
+
+    # Generate header cells
+    header_cells = [html.Th("Indicator")] + [
+        html.Th(
+            m.split("-")[1],  # Just show the month, not the year
+            title=m  # Full date as tooltip
+        ) for m in months_list
+    ] + [html.Th("Actions")]
+
+    return header_cells
+
+# -------------------------------
+# Callback: Months Back Setting
 # -------------------------------
 @app.callback(
     Output("global-message", "children"),
+    [Input("update-months-back-btn", "n_clicks")],
+    [State("months-back-input", "value")],
+    prevent_initial_call=True
+)
+def update_months_back(n_clicks, new_value):
+    """Update the MONTHS_BACK setting and refresh all data."""
+    if not new_value:
+        return "Please enter a valid number of months."
+
+    try:
+        log_message(f"Updating MONTHS_BACK setting to {new_value}")
+        # Update the setting
+        if set_months_back(new_value):
+            # Perform a full refresh on all series
+            if "series_list" in db:
+                success = refresh_all_series()
+                if success:
+                    return f"Updated to show {new_value} months of data and refreshed all indicators."
+                else:
+                    return f"Updated to show {new_value} months, but some indicators failed to refresh."
+            return f"Updated to show {new_value} months of data."
+        else:
+            return "Failed to update months setting. Please enter a valid number."
+    except Exception as e:
+        log_message(f"Error updating MONTHS_BACK: {str(e)}", "ERROR")
+        return f"Error: {str(e)}"
+
+# -------------------------------
+# Callback: Direction Toggle
+# -------------------------------
+@app.callback(
+    Output("global-message", "children", allow_duplicate=True),
     [Input(f"direction-toggle-{sid}", "value") for sid in db.get("series_list", [])],
-    [State(f"direction-toggle-{sid}", "id") for sid in db.get("series_list", [])]
+    [State(f"direction-toggle-{sid}", "id") for sid in db.get("series_list", [])],
+    prevent_initial_call=True
 )
 def update_direction(*args):
     """
@@ -880,7 +1085,7 @@ def update_direction(*args):
     [
         Input(f"{sid}-{(datetime.date.today().replace(day=1) - pd.DateOffset(months=i)).strftime('%Y-%m')}", "n_clicks")
         for sid in db.get("series_list", [])
-        for i in range(MONTHS_BACK, 0, -1)
+        for i in range(get_months_back(), 0, -1)
     ],
     prevent_initial_call=True
 )
@@ -1219,6 +1424,7 @@ def add_series(n_clicks, new_id):
     new_id = new_id.strip().upper()  # Normalize to uppercase for FRED IDs
 
     try:
+        log_message(f"Adding new series: {new_id}")
         refresh_series_data(new_id)
         # Check if it was actually added
         if f"series_{new_id}" in db:
@@ -1228,7 +1434,23 @@ def add_series(n_clicks, new_id):
         else:
             return f"Failed to add series: {new_id}. Please check the ID and try again."
     except Exception as e:
+        log_message(f"Error adding series {new_id}: {str(e)}", "ERROR")
         return f"Error: {str(e)}"
+
+@app.callback(
+    Output("add-series-msg", "children", allow_duplicate=True),
+    Input("refresh-all-btn", "n_clicks"),
+    prevent_initial_call=True
+)
+def refresh_all_button(n_clicks):
+    """Handle the Refresh All button click."""
+    try:
+        log_message("Manual refresh triggered")
+        result = refresh_all_series()
+        return "All series refreshed successfully." if result else "Some series failed to refresh."
+    except Exception as e:
+        log_message(f"Error during manual refresh: {str(e)}", "ERROR")
+        return f"Error refreshing data: {str(e)}"
 
 # ---------------------------------------
 # Run Server
