@@ -877,7 +877,7 @@ def layout_dashboard():
         html.Div(
             [
                 html.Table(
-                    [html.Thead(header), html.Tbody(table_rows)],
+                    [html.Thead(header), html.tbody(table_rows)],
                     className="indicator-table",
                     id="indicator-table"
                 )
@@ -1243,15 +1243,16 @@ def manage_modal(n_close, *open_clicks):
                 ],
                 style={
                     "position": "relative",
-                    "margin": "50px auto",
-                    "width": "90%",
+                    "margin": "10px auto",
+                    "width": "95%",
                     "maxWidth": "1200px",
-                    "maxHeight": "90vh",
+                    "maxHeight": "95vh",
                     "backgroundColor": "#fff",
                     "borderRadius": "8px",
-                    "overflow": "hidden",
+                    "overflow": "auto",
                     "boxShadow": "0 4px 20px rgba(0,0,0,0.2)",
-                    "textAlign": "left"  # Align modal content to the left
+                    "textAlign": "left",
+                    "-webkit-overflow-scrolling": "touch"
                 })
             ]
         )
