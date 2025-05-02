@@ -749,7 +749,7 @@ def layout_dashboard():
 
     # Add toggle for showing all months vs recent
     months_back = get_months_back()
-    max_display_months = 60  # Maximum months to show in the grid at once
+    max_display_months = 18  # Maximum months to show in the grid at once
 
     display_toggle = html.Div([
         html.Label("Time Display:", style={"fontWeight": "bold", "marginRight": "10px"}),
@@ -807,9 +807,11 @@ def layout_dashboard():
                     style={
                         "backgroundColor": bg_color,
                         "width": "30px",
-                        "height": "25px",
+                        "height": "24px",
                         "cursor": "pointer",
-                        "textAlign": "center"
+                        "textAlign": "center",
+                        "padding": "0 4px",
+                        "lineHeight": "24px"
                     }
                 )
             )
@@ -843,9 +845,13 @@ def layout_dashboard():
                     ], style={
                         "fontWeight": "bold",
                         "whiteSpace": "nowrap",
-                        "width": "200px",  # Reduced width for better overall table display
+                        "width": "100px",
+                        "maxWidth": "100px",
                         "overflow": "hidden",
-                        "textOverflow": "ellipsis"  # Add ellipsis for long names
+                        "textOverflow": "ellipsis",
+                        "height": "24px",
+                        "lineHeight": "24px",
+                        "padding": "0 8px"
                     }),
                     *row_cells,
                     html.Td([
