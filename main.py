@@ -882,13 +882,16 @@ def layout_dashboard():
         month_headers_container,
         html.Div(
             [
-                html.Table(
-                    [html.Thead(header), html.Tbody(table_rows)],
-                    className="indicator-table",
-                    id="indicator-table"
-                )
+                html.Div([
+                    html.Table(
+                        [html.Thead(header), html.Tbody(table_rows)],
+                        className="indicator-table",
+                        id="indicator-table",
+                        style={"minWidth": "800px"}  # Ensure minimum width for scrolling
+                    )
+                ], style={"overflowX": "auto", "width": "100%"})  # Enable horizontal scrolling
             ],
-            style={"overflowX": "auto", "marginBottom": "20px"}
+            style={"marginBottom": "20px"}
         ),
         html.Div([
             html.H3("Indicator Details", style={"marginBottom": "15px", "textAlign": "left"}),
