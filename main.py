@@ -877,7 +877,7 @@ def layout_dashboard():
         html.Div(
             [
                 html.Table(
-                    [html.Thead(header), html.tbody(table_rows)],
+                    [html.Thead(header), html.Tbody(table_rows)],
                     className="indicator-table",
                     id="indicator-table"
                 )
