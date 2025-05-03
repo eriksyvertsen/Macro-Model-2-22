@@ -749,7 +749,7 @@ def layout_dashboard():
 
     # Add toggle for showing all months vs recent
     months_back = get_months_back()
-    max_display_months = 18  # Maximum months to show in the grid at once
+    max_display_months = 60  # Maximum months to show in the grid at once
 
     display_toggle = html.Div([
         html.Label("Time Display:", style={"fontWeight": "bold", "marginRight": "10px"}),
@@ -807,11 +807,9 @@ def layout_dashboard():
                     style={
                         "backgroundColor": bg_color,
                         "width": "30px",
-                        "height": "24px",
+                        "height": "25px",
                         "cursor": "pointer",
-                        "textAlign": "center",
-                        "padding": "0 4px",
-                        "lineHeight": "24px"
+                        "textAlign": "center"
                     }
                 )
             )
@@ -845,13 +843,9 @@ def layout_dashboard():
                     ], style={
                         "fontWeight": "bold",
                         "whiteSpace": "nowrap",
-                        "width": "100px",
-                        "maxWidth": "100px",
+                        "width": "200px",  # Reduced width for better overall table display
                         "overflow": "hidden",
-                        "textOverflow": "ellipsis",
-                        "height": "24px",
-                        "lineHeight": "24px",
-                        "padding": "0 8px"
+                        "textOverflow": "ellipsis"  # Add ellipsis for long names
                     }),
                     *row_cells,
                     html.Td([
@@ -1249,16 +1243,15 @@ def manage_modal(n_close, *open_clicks):
                 ],
                 style={
                     "position": "relative",
-                    "margin": "10px auto",
-                    "width": "95%",
+                    "margin": "50px auto",
+                    "width": "90%",
                     "maxWidth": "1200px",
-                    "maxHeight": "95vh",
+                    "maxHeight": "90vh",
                     "backgroundColor": "#fff",
                     "borderRadius": "8px",
-                    "overflow": "auto",
+                    "overflow": "hidden",
                     "boxShadow": "0 4px 20px rgba(0,0,0,0.2)",
-                    "textAlign": "left",
-                    "-webkit-overflow-scrolling": "touch"
+                    "textAlign": "left"  # Align modal content to the left
                 })
             ]
         )
