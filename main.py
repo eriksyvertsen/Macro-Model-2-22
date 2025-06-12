@@ -91,10 +91,10 @@ def classify_value(value, prev_value, direction="positive", up_threshold=0.0001,
         
         return f"rgb({r}, {g}, {b})"
     else:
-        # Red gradient: from light red to vibrant red
-        # Start: light red (255, 182, 193), End: dark red (178, 34, 34)
-        start_r, start_g, start_b = 255, 182, 193
-        end_r, end_g, end_b = 178, 34, 34
+        # Red gradient: from grey to deep red
+        # Start: light grey (200, 200, 200), End: deep red (180, 30, 30)
+        start_r, start_g, start_b = 200, 200, 200
+        end_r, end_g, end_b = 180, 30, 30
         
         # Smooth interpolation with easing function
         smooth_intensity = intensity * intensity * (3.0 - 2.0 * intensity)  # Smoothstep function
