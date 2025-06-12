@@ -1,7 +1,9 @@
+
+pandas>=2.2.3
+requests>=2.32.3
+dash>=2.14.1
+plotly>=5.17.0
 dash
-plotly
-pandas
 fredapi
-schedule
+plotly
 replit
-requests
