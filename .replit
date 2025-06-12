@@ -24,12 +24,25 @@ localPort = 8050
 externalPort = 80
 
 [workflows]
-runButton = "Start Frontend"
+runButton = "Start Full Stack"
 
 [[workflows.workflow]]
 name = "Start Frontend"
 author = 21079383
 mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd frontend && npm start"
+
+[[workflows.workflow]]
+name = "Start Full Stack"
+author = 21079383
+mode = "parallel"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python main.py"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
