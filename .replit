@@ -18,3 +18,15 @@ deploymentTarget = "cloudrun"
 [[ports]]
 localPort = 8050
 externalPort = 80
+
+[workflows]
+runButton = "Start Frontend"
+
+[[workflows.workflow]]
+name = "Start Frontend"
+author = 21079383
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd frontend && npm start"

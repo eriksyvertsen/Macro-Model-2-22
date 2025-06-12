@@ -111,15 +111,12 @@ const Dashboard = () => {
           Monitor key economic indicators and their trends. Click on a cell to see the detailed chart.
         </p>
         
-        <div style={{ 
+        <div className="controls-section" style={{ 
           display: 'flex', 
           flexWrap: 'wrap', 
-          gap: '15px', 
+          gap: '20px', 
           alignItems: 'center',
-          marginBottom: '20px',
-          padding: '15px',
-          backgroundColor: '#f8f9fa',
-          borderRadius: '8px'
+          marginBottom: '24px'
         }}>
           <AddSeriesForm onAddSeries={handleAddSeries} />
           
@@ -152,30 +149,43 @@ const Dashboard = () => {
           </div>
         </div>
 
-        <div style={{
-          marginBottom: '15px',
-          padding: '10px',
-          backgroundColor: '#f8f9fa',
-          borderRadius: '5px',
-          fontSize: '14px'
-        }}>
-          <div style={{ display: 'flex', gap: '15px', marginBottom: '5px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <div style={{ width: '20px', height: '20px', backgroundColor: '#28a745' }}></div>
-              <span>Green: Positive trend</span>
+        <div className="legend-container">
+          <h4 style={{ 
+            marginBottom: '16px', 
+            color: '#2c3e50',
+            fontSize: '16px',
+            fontWeight: '600'
+          }}>
+            🎨 Color Legend
+          </h4>
+          <div style={{ 
+            display: 'flex', 
+            gap: '20px', 
+            marginBottom: '12px',
+            flexWrap: 'wrap'
+          }}>
+            <div className="legend-item">
+              <div className="legend-color" style={{ backgroundColor: '#28a745' }}></div>
+              <span>✅ Positive Trend</span>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <div style={{ width: '20px', height: '20px', backgroundColor: '#dc3545' }}></div>
-              <span>Red: Negative trend</span>
+            <div className="legend-item">
+              <div className="legend-color" style={{ backgroundColor: '#dc3545' }}></div>
+              <span>❌ Negative Trend</span>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <div style={{ width: '20px', height: '20px', backgroundColor: '#6c757d' }}></div>
-              <span>Grey: Neutral/No change</span>
+            <div className="legend-item">
+              <div className="legend-color" style={{ backgroundColor: '#6c757d' }}></div>
+              <span>⚪ Neutral/No Change</span>
             </div>
           </div>
-          <div style={{ fontStyle: 'italic', color: '#666' }}>
-            Note: Colors are based on indicator direction settings. For 'Increase is Positive' indicators, green means increasing. 
-            For 'Increase is Negative' indicators, green means decreasing.
+          <div style={{ 
+            fontStyle: 'italic', 
+            color: '#7f8c8d',
+            fontSize: '13px',
+            lineHeight: '1.5'
+          }}>
+            💡 <strong>Tip:</strong> Colors adapt to indicator direction settings. For 'Increase is Positive' indicators, 
+            green means improving values. For 'Increase is Negative' indicators, green means decreasing values 
+            (which is good for metrics like unemployment or inflation).
           </div>
         </div>
       </div>

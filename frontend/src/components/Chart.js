@@ -33,9 +33,16 @@ const Chart = ({ indicator }) => {
   };
 
   return (
-    <div>
-      <div style={{ marginBottom: '10px' }}>
-        <h4>{indicator.name} ({indicator.id})</h4>
+    <div className="chart-container">
+      <div style={{ marginBottom: '16px' }}>
+        <h4 style={{ 
+          color: '#2c3e50', 
+          fontSize: '18px',
+          fontWeight: '600',
+          marginBottom: '4px'
+        }}>
+          📈 {indicator.name} ({indicator.id})
+        </h4>
         {indicator.selectedMonth && indicator.selectedValue && (
           <p style={{ color: '#666', fontSize: '14px' }}>
             Selected: {indicator.selectedMonth} - {indicator.selectedValue.toLocaleString()}
