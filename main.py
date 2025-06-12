@@ -9,6 +9,7 @@ import pandas as pd
 from replit import db
 from fredapi import Fred
 import datetime
+from flask import request
 
 # ---------------------------------------
 # Configuration & Initialization
@@ -1480,6 +1481,251 @@ def refresh_all_button(n_clicks):
     except Exception as e:
         log_message(f"Error during manual refresh: {str(e)}", "ERROR")
         return f"Error refreshing data: {str(e)}"
+
+# ---------------------------------------
+# API Endpoints for React Frontend
+# ---------------------------------------
+@app.server.route('/api/indicators')
+def api_indicators():
+    """Get all indicators with their heatmap data"""
+    try:
+        series_list = db.get("series_list", [])
+        months_back = get_months_back()
+        
+        # Generate months list
+        base = datetime.date.today().replace(day=1)
+        months_list = []
+        for i in range(months_back, 0, -1):
+            m = base - pd.DateOffset(months=i)
+            months_list.append(m.strftime("%Y-%m"))
+        
+        indicators = []
+        for sid in series_list:
+            key = f"series_{sid}"
+            entry = db.get(key, {})
+            if not entry:
+                continue
+                
+            name = entry.get("name", sid)
+            direction = entry.get("direction", "positive")
+            data_records = entry.get("data", [])
+            
+            # Get monthly classifications
+            monthly_class = dict(get_monthly_classifications(sid))
+            
+            # Prepare data for each month
+            month_data = []
+            for month_str in months_list:
+                # Find the value for this month
+                value = None
+                for record in data_records:
+                    if record.get("date") == month_str:
+                        value = record.get("value")
+                        break
+                
+                classification = monthly_class.get(month_str, "#6c757d")
+                month_data.append({
+                    "month": month_str,
+                    "date": month_str,
+                    "value": value,
+                    "classification": classification
+                })
+            
+            # Also include full time series data for charts
+            chart_data = []
+            for record in sorted(data_records, key=lambda x: x.get("date", "")):
+                if record.get("value") is not None:
+                    chart_data.append({
+                        "date": record["date"],
+                        "value": record["value"]
+                    })
+            
+            indicators.append({
+                "id": sid,
+                "name": name,
+                "direction": direction,
+                "data": month_data,
+                "chart_data": chart_data
+            })
+        
+        return {
+            "indicators": indicators,
+            "months": months_list,
+            "months_back": months_back
+        }
+    except Exception as e:
+        log_message(f"API error in /api/indicators: {str(e)}", "ERROR")
+        return {"error": str(e)}, 500
+
+@app.server.route('/api/add-series', methods=['POST'])
+def api_add_series():
+    """Add a new series"""
+    try:
+        data = request.get_json()
+        series_id = data.get('series_id', '').strip().upper()
+        
+        if not series_id:
+            return {"error": "Series ID is required"}, 400
+        
+        # Use existing refresh_series_data function
+        success = refresh_series_data(series_id)
+        
+        if success:
+            return {"success": True, "message": f"Added series {series_id}"}
+        else:
+            return {"error": f"Failed to add series {series_id}"}, 400
+            
+    except Exception as e:
+        log_message(f"API error in /api/add-series: {str(e)}", "ERROR")
+        return {"error": str(e)}, 500
+
+@app.server.route('/api/refresh-all', methods=['POST'])
+def api_refresh_all():
+    """Refresh all series data"""
+    try:
+        success = refresh_all_series()
+        if success:
+            return {"success": True, "message": "All series refreshed"}
+        else:
+            return {"error": "Some series failed to refresh"}, 400
+    except Exception as e:
+        log_message(f"API error in /api/refresh-all: {str(e)}", "ERROR")
+        return {"error": str(e)}, 500
+
+@app.server.route('/api/update-months-back', methods=['POST'])
+def api_update_months_back():
+    """Update the months back setting"""
+    try:
+        data = request.get_json()
+        months_back = data.get('months_back')
+        
+        if not months_back or months_back < 1:
+            return {"error": "Invalid months_back value"}, 400
+        
+        if set_months_back(months_back):
+            refresh_all_series()
+            return {"success": True, "message": f"Updated to {months_back} months"}
+        else:
+            return {"error": "Failed to update months setting"}, 400
+            
+    except Exception as e:
+        log_message(f"API error in /api/update-months-back: {str(e)}", "ERROR")
+        return {"error": str(e)}, 500
+
+@app.server.route('/api/update-direction', methods=['POST'])
+def api_update_direction():
+    """Update direction for a series"""
+    try:
+        data = request.get_json()
+        series_id = data.get('series_id')
+        direction = data.get('direction')
+        
+        if not series_id or direction not in ['positive', 'negative']:
+            return {"error": "Invalid series_id or direction"}, 400
+        
+        success = update_series_direction(series_id, direction)
+        if success:
+            return {"success": True, "message": f"Updated direction for {series_id}"}
+        else:
+            return {"error": f"Failed to update direction for {series_id}"}, 400
+            
+    except Exception as e:
+        log_message(f"API error in /api/update-direction: {str(e)}", "ERROR")
+        return {"error": str(e)}, 500
+
+@app.server.route('/api/composite')
+def api_composite():
+    """Get composite index data and weights"""
+    try:
+        series_list = db.get("series_list", [])
+        weights = load_weights()
+        
+        # If no weights, default to equal
+        if not weights and series_list:
+            default_w = 1.0 / len(series_list)
+            weights = {sid: default_w for sid in series_list}
+            save_weights(weights)
+        
+        # Get composite data
+        comp_df = get_composite_df(weights)
+        
+        # Prepare indicators info
+        indicators = []
+        for sid in series_list:
+            key = f"series_{sid}"
+            entry = db.get(key, {})
+            if entry:
+                indicators.append({
+                    "id": sid,
+                    "name": entry.get("name", sid),
+                    "direction": entry.get("direction", "positive")
+                })
+        
+        # Prepare composite chart data
+        composite_data = None
+        if not comp_df.empty:
+            chart_data = []
+            for _, row in comp_df.iterrows():
+                chart_data.append({
+                    "date": row["date"],
+                    "value": row["composite_value"]
+                })
+            
+            composite_data = {
+                "id": "composite",
+                "name": "Composite Economic Index",
+                "direction": "positive",
+                "data": chart_data,
+                "chart_data": chart_data
+            }
+        
+        return {
+            "indicators": indicators,
+            "weights": weights,
+            "composite": composite_data
+        }
+        
+    except Exception as e:
+        log_message(f"API error in /api/composite: {str(e)}", "ERROR")
+        return {"error": str(e)}, 500
+
+@app.server.route('/api/save-weights', methods=['POST'])
+def api_save_weights():
+    """Save composite weights"""
+    try:
+        data = request.get_json()
+        weights = data.get('weights', {})
+        
+        # Normalize weights
+        total = sum(weights.values())
+        if total > 0:
+            weights = {k: v/total for k, v in weights.items()}
+        
+        save_weights(weights)
+        return {"success": True, "message": "Weights saved"}
+        
+    except Exception as e:
+        log_message(f"API error in /api/save-weights: {str(e)}", "ERROR")
+        return {"error": str(e)}, 500
+
+@app.server.route('/api/reset-weights', methods=['POST'])
+def api_reset_weights():
+    """Reset weights to equal"""
+    try:
+        series_list = db.get("series_list", [])
+        if series_list:
+            default_w = 1.0 / len(series_list)
+            weights = {sid: default_w for sid in series_list}
+            save_weights(weights)
+        
+        return {"success": True, "message": "Weights reset to equal"}
+        
+    except Exception as e:
+        log_message(f"API error in /api/reset-weights: {str(e)}", "ERROR")
+        return {"error": str(e)}, 500
+
+# Import request from flask at the top
+from flask import request
 
 # ---------------------------------------
 # Run Server
