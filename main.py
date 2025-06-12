@@ -375,8 +375,7 @@ def update_dashboard(n_clicks, selected_indicators, months_back):
         margin=dict(l=20, r=20, t=60, b=20),
         xaxis=dict(tickangle=45),
         coloraxis_colorbar=dict(
-            title="Value",
-            titleside="right"
+            title="Value"
         )
     )
     
