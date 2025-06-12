@@ -75,16 +75,35 @@ def classify_value(value, prev_value, direction="positive", up_threshold=0.0001,
     capped_change = max(-0.05, min(0.05, change))
     intensity = abs(capped_change) / 0.05  # Normalize to 0-1
     
+    # Create smoother gradient with more refined color interpolation
     if is_good_change:
-        # Green gradient: from light green to dark green
-        # RGB: (40, 167, 69) is the base green color
-        green_intensity = int(167 + (255 - 167) * (1 - intensity))
-        return f"rgb(40, {green_intensity}, 69)"
+        # Green gradient: from light green to vibrant green
+        # Start: light green (144, 238, 144), End: dark green (34, 139, 34)
+        start_r, start_g, start_b = 144, 238, 144
+        end_r, end_g, end_b = 34, 139, 34
+        
+        # Smooth interpolation with easing function
+        smooth_intensity = intensity * intensity * (3.0 - 2.0 * intensity)  # Smoothstep function
+        
+        r = int(start_r + (end_r - start_r) * smooth_intensity)
+        g = int(start_g + (end_g - start_g) * smooth_intensity)
+        b = int(start_b + (end_b - start_b) * smooth_intensity)
+        
+        return f"rgb({r}, {g}, {b})"
     else:
-        # Red gradient: from light red to dark red  
-        # RGB: (220, 53, 69) is the base red color
-        red_intensity = int(220 + (255 - 220) * (1 - intensity))
-        return f"rgb({red_intensity}, 53, 69)"
+        # Red gradient: from light red to vibrant red
+        # Start: light red (255, 182, 193), End: dark red (178, 34, 34)
+        start_r, start_g, start_b = 255, 182, 193
+        end_r, end_g, end_b = 178, 34, 34
+        
+        # Smooth interpolation with easing function
+        smooth_intensity = intensity * intensity * (3.0 - 2.0 * intensity)  # Smoothstep function
+        
+        r = int(start_r + (end_r - start_r) * smooth_intensity)
+        g = int(start_g + (end_g - start_g) * smooth_intensity)
+        b = int(start_b + (end_b - start_b) * smooth_intensity)
+        
+        return f"rgb({r}, {g}, {b})"
 
 # ---------------------------------------
 # Helper to Fetch Series Title from FRED
