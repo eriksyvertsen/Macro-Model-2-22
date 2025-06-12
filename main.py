@@ -20,7 +20,13 @@ app.layout = html.Div([
             html.H1("Economic Indicators Dashboard", 
                    className="header-title"),
             html.P("Track key economic indicators with interactive heatmaps", 
-                   className="header-subtitle")
+                   className="header-subtitle"),
+            html.Div([
+                html.A("View Composite Index", 
+                      href="/composite", 
+                      className="composite-link",
+                      target="_blank")
+            ], className="header-links")
         ], className="header-content")
     ], className="header-section"),
     
@@ -34,11 +40,26 @@ app.layout = html.Div([
                     options=[
                         {"label": "GDP Growth Rate", "value": "GDP"},
                         {"label": "Unemployment Rate", "value": "UNRATE"},
-                        {"label": "Inflation Rate", "value": "CPIAUCSL"},
-                        {"label": "Interest Rate", "value": "FEDFUNDS"},
-                        {"label": "Housing Starts", "value": "HOUST"}
+                        {"label": "Inflation Rate (CPI)", "value": "CPIAUCSL"},
+                        {"label": "Federal Funds Rate", "value": "FEDFUNDS"},
+                        {"label": "Housing Starts", "value": "HOUST"},
+                        {"label": "Industrial Production", "value": "INDPRO"},
+                        {"label": "Consumer Confidence", "value": "UMCSENT"},
+                        {"label": "Retail Sales", "value": "RSXFS"},
+                        {"label": "Payroll Employment", "value": "PAYEMS"},
+                        {"label": "Personal Income", "value": "PI"},
+                        {"label": "Durable Goods Orders", "value": "DGORDER"},
+                        {"label": "Building Permits", "value": "PERMIT"},
+                        {"label": "ISM Manufacturing PMI", "value": "NAPM"},
+                        {"label": "Consumer Price Index", "value": "CPILFESL"},
+                        {"label": "Producer Price Index", "value": "PPIFIS"},
+                        {"label": "10-Year Treasury Rate", "value": "DGS10"},
+                        {"label": "Dollar Index", "value": "DTWEXBGS"},
+                        {"label": "Crude Oil Prices", "value": "DCOILWTICO"},
+                        {"label": "Gold Prices", "value": "GOLDAMGBD228NLBM"},
+                        {"label": "VIX Volatility", "value": "VIXCLS"}
                     ],
-                    value=["GDP", "UNRATE", "CPIAUCSL"],
+                    value=["GDP", "UNRATE", "CPIAUCSL", "FEDFUNDS", "HOUST", "INDPRO", "UMCSENT", "RSXFS", "PAYEMS", "PI", "DGORDER", "PERMIT", "NAPM", "CPILFESL", "PPIFIS", "DGS10", "DTWEXBGS", "DCOILWTICO", "GOLDAMGBD228NLBM", "VIXCLS"],
                     multi=True,
                     className="dropdown"
                 )
@@ -139,6 +160,29 @@ app.index_string = '''
                 color: #4a5568;
                 font-size: 1.1rem;
                 opacity: 0.8;
+                margin-bottom: 1rem;
+            }
+            
+            .header-links {
+                margin-top: 1rem;
+            }
+            
+            .composite-link {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                text-decoration: none;
+                padding: 0.5rem 1rem;
+                border-radius: 6px;
+                font-weight: 600;
+                transition: all 0.3s ease;
+                font-size: 0.9rem;
+            }
+            
+            .composite-link:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+                color: white;
+                text-decoration: none;
             }
             
             .controls-section {
@@ -332,39 +376,61 @@ def update_dashboard(n_clicks, selected_indicators, months_back):
         )
         return empty_fig, []
     
-    # Sample data generation (replace with your actual data fetching logic)
+    # Directional factors for indicators (1 = higher is better, -1 = higher is worse)
+    direction_factors = {
+        "GDP": 1, "UNRATE": -1, "CPIAUCSL": -1, "FEDFUNDS": 0, "HOUST": 1,
+        "INDPRO": 1, "UMCSENT": 1, "RSXFS": 1, "PAYEMS": 1, "PI": 1,
+        "DGORDER": 1, "PERMIT": 1, "NAPM": 1, "CPILFESL": -1, "PPIFIS": -1,
+        "DGS10": 0, "DTWEXBGS": 0, "DCOILWTICO": 0, "GOLDAMGBD228NLBM": 0, "VIXCLS": -1
+    }
+    
+    # Sample data generation with directional coding
     months = pd.date_range(
         start=datetime.now() - timedelta(days=30*months_back), 
         end=datetime.now(), 
         freq='M'
     )
     
-    # Create sample heatmap data
+    # Create sample heatmap data with directional adjustment
     data = []
     for indicator in selected_indicators:
+        direction = direction_factors.get(indicator, 1)
+        prev_value = None
+        
         for month in months:
             # Generate sample values
             import random
-            value = random.uniform(-2, 5) + random.uniform(-1, 1)
+            raw_value = random.uniform(-2, 5) + random.uniform(-1, 1)
+            
+            if prev_value is not None:
+                # Calculate directional change
+                change = (raw_value - prev_value) / abs(prev_value) if prev_value != 0 else 0
+                directional_value = direction * change
+            else:
+                directional_value = 0
+                
             data.append({
                 'Indicator': indicator,
                 'Month': month.strftime('%Y-%m'),
-                'Value': value
+                'Value': directional_value,
+                'RawValue': raw_value
             })
+            prev_value = raw_value
     
     df = pd.DataFrame(data)
     
     # Create pivot table for heatmap
     pivot_df = df.pivot(index='Indicator', columns='Month', values='Value')
     
-    # Create heatmap
+    # Create heatmap with red-green color scale
     fig = go.Figure(data=go.Heatmap(
         z=pivot_df.values,
         x=pivot_df.columns,
         y=pivot_df.index,
-        colorscale='RdYlBu_r',
+        colorscale='RdYlGn',
         hoverongaps=False,
-        hovertemplate='<b>%{y}</b><br>%{x}<br>Value: %{z:.2f}<extra></extra>'
+        hovertemplate='<b>%{y}</b><br>%{x}<br>Change: %{z:.2%}<extra></extra>',
+        zmid=0
     ))
     
     fig.update_layout(
