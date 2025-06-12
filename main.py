@@ -9,7 +9,7 @@ import pandas as pd
 from replit import db
 from fredapi import Fred
 import datetime
-from flask import request
+from flask import request, jsonify
 
 # ---------------------------------------
 # Configuration & Initialization
@@ -75,35 +75,35 @@ def classify_value(value, prev_value, direction="positive", up_threshold=0.0001,
     # Cap the change at ±5% for color calculation to avoid extreme colors
     capped_change = max(-0.05, min(0.05, change))
     intensity = abs(capped_change) / 0.05  # Normalize to 0-1
-    
+
     # Create smoother gradient with more refined color interpolation
     if is_good_change:
         # Green gradient: from light green to vibrant green
         # Start: light green (144, 238, 144), End: dark green (34, 139, 34)
         start_r, start_g, start_b = 144, 238, 144
         end_r, end_g, end_b = 34, 139, 34
-        
+
         # Smooth interpolation with easing function
         smooth_intensity = intensity * intensity * (3.0 - 2.0 * intensity)  # Smoothstep function
-        
+
         r = int(start_r + (end_r - start_r) * smooth_intensity)
         g = int(start_g + (end_g - start_g) * smooth_intensity)
         b = int(start_b + (end_b - start_b) * smooth_intensity)
-        
+
         return f"rgb({r}, {g}, {b})"
     else:
         # Red gradient: from grey to deep red
         # Start: light grey (200, 200, 200), End: deep red (180, 30, 30)
         start_r, start_g, start_b = 200, 200, 200
         end_r, end_g, end_b = 180, 30, 30
-        
+
         # Smooth interpolation with easing function
         smooth_intensity = intensity * intensity * (3.0 - 2.0 * intensity)  # Smoothstep function
-        
+
         r = int(start_r + (end_r - start_r) * smooth_intensity)
         g = int(start_g + (end_g - start_g) * smooth_intensity)
         b = int(start_b + (end_b - start_b) * smooth_intensity)
-        
+
         return f"rgb({r}, {g}, {b})"
 
 # ---------------------------------------
@@ -1491,28 +1491,28 @@ def api_indicators():
     try:
         series_list = db.get("series_list", [])
         months_back = get_months_back()
-        
+
         # Generate months list
         base = datetime.date.today().replace(day=1)
         months_list = []
         for i in range(months_back, 0, -1):
             m = base - pd.DateOffset(months=i)
             months_list.append(m.strftime("%Y-%m"))
-        
+
         indicators = []
         for sid in series_list:
             key = f"series_{sid}"
             entry = db.get(key, {})
             if not entry:
                 continue
-                
+
             name = entry.get("name", sid)
             direction = entry.get("direction", "positive")
             data_records = entry.get("data", [])
-            
+
             # Get monthly classifications
             monthly_class = dict(get_monthly_classifications(sid))
-            
+
             # Prepare data for each month
             month_data = []
             for month_str in months_list:
@@ -1522,7 +1522,7 @@ def api_indicators():
                     if record.get("date") == month_str:
                         value = record.get("value")
                         break
-                
+
                 classification = monthly_class.get(month_str, "#6c757d")
                 month_data.append({
                     "month": month_str,
@@ -1530,7 +1530,7 @@ def api_indicators():
                     "value": value,
                     "classification": classification
                 })
-            
+
             # Also include full time series data for charts
             chart_data = []
             for record in sorted(data_records, key=lambda x: x.get("date", "")):
@@ -1539,7 +1539,7 @@ def api_indicators():
                         "date": record["date"],
                         "value": record["value"]
                     })
-            
+
             indicators.append({
                 "id": sid,
                 "name": name,
@@ -1547,7 +1547,7 @@ def api_indicators():
                 "data": month_data,
                 "chart_data": chart_data
             })
-        
+
         return {
             "indicators": indicators,
             "months": months_list,
@@ -1555,7 +1555,7 @@ def api_indicators():
         }
     except Exception as e:
         log_message(f"API error in /api/indicators: {str(e)}", "ERROR")
-        return {"error": str(e)}, 500
+        return jsonify({"error": str(e)}), 500
 
 @app.server.route('/api/add-series', methods=['POST'])
 def api_add_series():
@@ -1563,21 +1563,21 @@ def api_add_series():
     try:
         data = request.get_json()
         series_id = data.get('series_id', '').strip().upper()
-        
+
         if not series_id:
             return {"error": "Series ID is required"}, 400
-        
+
         # Use existing refresh_series_data function
         success = refresh_series_data(series_id)
-        
+
         if success:
             return {"success": True, "message": f"Added series {series_id}"}
         else:
             return {"error": f"Failed to add series {series_id}"}, 400
-            
+
     except Exception as e:
         log_message(f"API error in /api/add-series: {str(e)}", "ERROR")
-        return {"error": str(e)}, 500
+        return jsonify({"error": str(e)}), 500
 
 @app.server.route('/api/refresh-all', methods=['POST'])
 def api_refresh_all():
@@ -1590,7 +1590,7 @@ def api_refresh_all():
             return {"error": "Some series failed to refresh"}, 400
     except Exception as e:
         log_message(f"API error in /api/refresh-all: {str(e)}", "ERROR")
-        return {"error": str(e)}, 500
+        return jsonify({"error": str(e)}), 500
 
 @app.server.route('/api/update-months-back', methods=['POST'])
 def api_update_months_back():
@@ -1598,19 +1598,19 @@ def api_update_months_back():
     try:
         data = request.get_json()
         months_back = data.get('months_back')
-        
+
         if not months_back or months_back < 1:
             return {"error": "Invalid months_back value"}, 400
-        
+
         if set_months_back(months_back):
             refresh_all_series()
             return {"success": True, "message": f"Updated to {months_back} months"}
         else:
             return {"error": "Failed to update months setting"}, 400
-            
+
     except Exception as e:
         log_message(f"API error in /api/update-months-back: {str(e)}", "ERROR")
-        return {"error": str(e)}, 500
+        return jsonify({"error": str(e)}), 500
 
 @app.server.route('/api/update-direction', methods=['POST'])
 def api_update_direction():
@@ -1619,19 +1619,19 @@ def api_update_direction():
         data = request.get_json()
         series_id = data.get('series_id')
         direction = data.get('direction')
-        
+
         if not series_id or direction not in ['positive', 'negative']:
             return {"error": "Invalid series_id or direction"}, 400
-        
+
         success = update_series_direction(series_id, direction)
         if success:
             return {"success": True, "message": f"Updated direction for {series_id}"}
         else:
             return {"error": f"Failed to update direction for {series_id}"}, 400
-            
+
     except Exception as e:
         log_message(f"API error in /api/update-direction: {str(e)}", "ERROR")
-        return {"error": str(e)}, 500
+        return jsonify({"error": str(e)}), 500
 
 @app.server.route('/api/composite')
 def api_composite():
@@ -1639,16 +1639,16 @@ def api_composite():
     try:
         series_list = db.get("series_list", [])
         weights = load_weights()
-        
+
         # If no weights, default to equal
         if not weights and series_list:
             default_w = 1.0 / len(series_list)
             weights = {sid: default_w for sid in series_list}
             save_weights(weights)
-        
+
         # Get composite data
         comp_df = get_composite_df(weights)
-        
+
         # Prepare indicators info
         indicators = []
         for sid in series_list:
@@ -1660,7 +1660,7 @@ def api_composite():
                     "name": entry.get("name", sid),
                     "direction": entry.get("direction", "positive")
                 })
-        
+
         # Prepare composite chart data
         composite_data = None
         if not comp_df.empty:
@@ -1670,7 +1670,7 @@ def api_composite():
                     "date": row["date"],
                     "value": row["composite_value"]
                 })
-            
+
             composite_data = {
                 "id": "composite",
                 "name": "Composite Economic Index",
@@ -1678,16 +1678,16 @@ def api_composite():
                 "data": chart_data,
                 "chart_data": chart_data
             }
-        
+
         return {
             "indicators": indicators,
             "weights": weights,
             "composite": composite_data
         }
-        
+
     except Exception as e:
         log_message(f"API error in /api/composite: {str(e)}", "ERROR")
-        return {"error": str(e)}, 500
+        return jsonify({"error": str(e)}), 500
 
 @app.server.route('/api/save-weights', methods=['POST'])
 def api_save_weights():
@@ -1695,18 +1695,18 @@ def api_save_weights():
     try:
         data = request.get_json()
         weights = data.get('weights', {})
-        
+
         # Normalize weights
         total = sum(weights.values())
         if total > 0:
             weights = {k: v/total for k, v in weights.items()}
-        
+
         save_weights(weights)
         return {"success": True, "message": "Weights saved"}
-        
+
     except Exception as e:
         log_message(f"API error in /api/save-weights: {str(e)}", "ERROR")
-        return {"error": str(e)}, 500
+        return jsonify({"error": str(e)}), 500
 
 @app.server.route('/api/reset-weights', methods=['POST'])
 def api_reset_weights():
@@ -1717,15 +1717,15 @@ def api_reset_weights():
             default_w = 1.0 / len(series_list)
             weights = {sid: default_w for sid in series_list}
             save_weights(weights)
-        
+
         return {"success": True, "message": "Weights reset to equal"}
-        
+
     except Exception as e:
         log_message(f"API error in /api/reset-weights: {str(e)}", "ERROR")
-        return {"error": str(e)}, 500
+        return jsonify({"error": str(e)}), 500
 
 # Import request from flask at the top
-from flask import request
+from flask import request, jsonify
 
 # ---------------------------------------
 # Run Server
