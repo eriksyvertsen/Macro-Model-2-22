@@ -32,11 +32,10 @@ def set_months_back(value):
     except:
         return False
 
-# Color scheme for classifications
+# Color scheme for classifications (now using gradients)
 COLOR_SCHEME = {
-    "green": "#28a745",   # Strong positive trend
-    "red": "#dc3545",     # Strong negative trend
-    "yellow": "#ffc107",  # Caution/Mixed signals
+    "green": "#28a745",   # Strong positive trend (reference)
+    "red": "#dc3545",     # Strong negative trend (reference)
     "grey": "#6c757d"     # Neutral/No significant change
 }
 
@@ -56,25 +55,36 @@ def classify_value(value, prev_value, direction="positive", up_threshold=0.0001,
     Classification with direction awareness:
       - direction="positive": Increase is good (e.g. GDP, industrial production)
       - direction="negative": Increase is bad (e.g. inflation, unemployment)
+    Returns a gradient color from red to green with grey as zero
     """
     if prev_value is None or prev_value == 0:
-        return "grey"
+        return "#6c757d"  # grey
 
     # Calculate the change percentage
     change = (value - prev_value) / abs(prev_value)
 
     # If change is too small (below threshold), return grey
     if abs(change) < up_threshold:
-        return "grey"
+        return "#6c757d"  # grey
 
     # Determine if change direction is "good" based on indicator direction
     is_good_change = (change > 0 and direction == "positive") or (change < 0 and direction == "negative")
 
-    # Return the appropriate color
+    # Calculate gradient intensity based on magnitude of change
+    # Cap the change at ±5% for color calculation to avoid extreme colors
+    capped_change = max(-0.05, min(0.05, change))
+    intensity = abs(capped_change) / 0.05  # Normalize to 0-1
+    
     if is_good_change:
-        return "green"
+        # Green gradient: from light green to dark green
+        # RGB: (40, 167, 69) is the base green color
+        green_intensity = int(167 + (255 - 167) * (1 - intensity))
+        return f"rgb(40, {green_intensity}, 69)"
     else:
-        return "red"
+        # Red gradient: from light red to dark red  
+        # RGB: (220, 53, 69) is the base red color
+        red_intensity = int(220 + (255 - 220) * (1 - intensity))
+        return f"rgb({red_intensity}, 53, 69)"
 
 # ---------------------------------------
 # Helper to Fetch Series Title from FRED
@@ -789,9 +799,9 @@ def layout_dashboard():
         # 1) Create the row cells for each month (colored squares)
         row_cells = []
         for month_str in months_list:
-            color = monthly_class.get(month_str, "grey")
-            # Use our enhanced color scheme
-            bg_color = COLOR_SCHEME.get(color, "#6c757d")
+            color = monthly_class.get(month_str, "#6c757d")
+            # Color is now directly a hex/rgb value from gradient
+            bg_color = color
             cell_id = f"{sid}-{month_str}"
             row_cells.append(
                 html.Td(
