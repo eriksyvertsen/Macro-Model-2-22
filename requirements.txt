@@ -4,3 +4,4 @@ pandas
 fredapi
 schedule
 replit
+flask
