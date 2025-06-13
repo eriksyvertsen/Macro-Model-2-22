@@ -1,0 +1,13 @@
+
+{
+  "name": "macro-tracker-app",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "npm run build && node server.js",
+    "build": "cd frontend && npm install && npm run build"
+  },
+  "dependencies": {
+    "express": "^4.18.0",
+    "http-proxy-middleware": "^2.0.0"
+  }
+}
