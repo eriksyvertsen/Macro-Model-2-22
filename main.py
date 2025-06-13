@@ -1489,7 +1489,7 @@ def refresh_all_button(n_clicks):
 def api_indicators():
     """Get all indicators with their heatmap data"""
     try:
-        series_list = db.get("series_list", [])
+        series_list = list(db.get("series_list", []))  # Convert to regular list
         months_back = get_months_back()
 
         # Generate months list
@@ -1506,9 +1506,11 @@ def api_indicators():
             if not entry:
                 continue
 
-            name = entry.get("name", sid)
-            direction = entry.get("direction", "positive")
-            data_records = entry.get("data", [])
+            # Convert ObservedDict to regular dict
+            entry_dict = dict(entry)
+            name = entry_dict.get("name", sid)
+            direction = entry_dict.get("direction", "positive")
+            data_records = entry_dict.get("data", [])
 
             # Get monthly classifications
             monthly_class = dict(get_monthly_classifications(sid))
@@ -1548,11 +1550,11 @@ def api_indicators():
                 "chart_data": chart_data
             })
 
-        return {
+        return jsonify({
             "indicators": indicators,
             "months": months_list,
             "months_back": months_back
-        }
+        })
     except Exception as e:
         log_message(f"API error in /api/indicators: {str(e)}", "ERROR")
         return jsonify({"error": str(e)}), 500
@@ -1655,10 +1657,12 @@ def api_composite():
             key = f"series_{sid}"
             entry = db.get(key, {})
             if entry:
+                # Convert ObservedDict to regular dict
+                entry_dict = dict(entry)
                 indicators.append({
                     "id": sid,
-                    "name": entry.get("name", sid),
-                    "direction": entry.get("direction", "positive")
+                    "name": entry_dict.get("name", sid),
+                    "direction": entry_dict.get("direction", "positive")
                 })
 
         # Prepare composite chart data
@@ -1679,11 +1683,14 @@ def api_composite():
                 "chart_data": chart_data
             }
 
-        return {
+        # Convert weights to regular dict to ensure JSON serialization
+        weights_dict = dict(weights) if weights else {}
+
+        return jsonify({
             "indicators": indicators,
-            "weights": weights,
+            "weights": weights_dict,
             "composite": composite_data
-        }
+        })
 
     except Exception as e:
         log_message(f"API error in /api/composite: {str(e)}", "ERROR")
