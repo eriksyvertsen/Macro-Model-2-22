@@ -27,8 +27,19 @@ const HeatmapGrid = ({ indicators, onCellClick, onDirectionChange }) => {
     );
   }
 
-  // Get the months from the first indicator (they should all have the same months)
-  const allMonths = indicators[0]?.months || [];
+  // Get all unique months from all indicators and sort them
+  const allMonthsSet = new Set();
+  indicators.forEach(indicator => {
+    if (indicator.data) {
+      indicator.data.forEach(dataPoint => {
+        if (dataPoint.month) {
+          allMonthsSet.add(dataPoint.month);
+        }
+      });
+    }
+  });
+  
+  const allMonths = Array.from(allMonthsSet).sort();
   const maxDisplayMonths = isMobile ? 36 : 60;
   const displayMonths = showAllMonths ? allMonths : allMonths.slice(-Math.min(maxDisplayMonths, allMonths.length));
 
@@ -41,7 +52,7 @@ const HeatmapGrid = ({ indicators, onCellClick, onDirectionChange }) => {
   };
 
   const getColorFromClassification = (classification) => {
-    if (classification.startsWith('rgb(')) {
+    if (classification && classification.startsWith('rgb(')) {
       return classification;
     }
     
@@ -128,8 +139,8 @@ const HeatmapGrid = ({ indicators, onCellClick, onDirectionChange }) => {
           {/* Header row */}
           <div style={{ 
             display: 'grid', 
-            gridTemplateColumns: `${isMobile ? '160px' : '220px'} repeat(${displayMonths.length}, ${isMobile ? '28px' : '36px'}) ${isMobile ? '140px' : '180px'}`,
-            gap: '3px',
+            gridTemplateColumns: `${isMobile ? '160px' : '220px'} repeat(${displayMonths.length}, ${isMobile ? '32px' : '40px'}) ${isMobile ? '140px' : '180px'}`,
+            gap: '4px',
             marginBottom: '8px'
           }}>
             <div className="heatmap-header">
@@ -141,11 +152,12 @@ const HeatmapGrid = ({ indicators, onCellClick, onDirectionChange }) => {
                 className="heatmap-header"
                 style={{ 
                   fontSize: isMobile ? '10px' : '11px',
-                  padding: isMobile ? '8px 4px' : '12px 8px'
+                  padding: isMobile ? '8px 4px' : '10px 6px',
+                  textAlign: 'center'
                 }}
                 title={month}
               >
-                {month.split('-')[1]}
+                {month ? month.split('-')[1] : ''}
               </div>
             ))}
             <div className="heatmap-header">
@@ -159,8 +171,8 @@ const HeatmapGrid = ({ indicators, onCellClick, onDirectionChange }) => {
               key={indicator.id}
               style={{ 
                 display: 'grid', 
-                gridTemplateColumns: `${isMobile ? '160px' : '220px'} repeat(${displayMonths.length}, ${isMobile ? '28px' : '36px'}) ${isMobile ? '140px' : '180px'}`,
-                gap: '3px',
+                gridTemplateColumns: `${isMobile ? '160px' : '220px'} repeat(${displayMonths.length}, ${isMobile ? '32px' : '40px'}) ${isMobile ? '140px' : '180px'}`,
+                gap: '4px',
                 marginBottom: '4px',
                 alignItems: 'center',
                 background: index % 2 === 0 ? 'rgba(255, 255, 255, 0.7)' : 'rgba(248, 249, 252, 0.7)',
@@ -190,8 +202,8 @@ const HeatmapGrid = ({ indicators, onCellClick, onDirectionChange }) => {
               </div>
 
               {displayMonths.map(month => {
-                const monthData = indicator.data.find(d => d.month === month);
-                const classification = monthData?.classification || 'grey';
+                const monthData = indicator.data ? indicator.data.find(d => d.month === month) : null;
+                const classification = monthData?.classification || '#6c757d';
                 const value = monthData?.value;
                 
                 return (
@@ -201,16 +213,24 @@ const HeatmapGrid = ({ indicators, onCellClick, onDirectionChange }) => {
                     style={{
                       backgroundColor: getColorFromClassification(classification),
                       cursor: 'pointer',
-                      width: isMobile ? '28px' : '36px',
-                      height: isMobile ? '28px' : '32px'
+                      width: isMobile ? '32px' : '40px',
+                      height: isMobile ? '32px' : '36px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      borderRadius: '6px',
+                      transition: 'all 0.2s ease',
+                      border: '1px solid rgba(255,255,255,0.2)'
                     }}
                     onClick={() => handleCellClick(indicator, month, value)}
-                    title={`${indicator.name}\n${month}\n${value !== undefined ? `Value: ${value.toLocaleString()}` : 'No data'}`}
+                    title={`${indicator.name}\n${month}\n${value !== undefined && value !== null ? `Value: ${value.toLocaleString()}` : 'No data'}`}
                   >
-                    {value !== undefined && (
+                    {value !== undefined && value !== null && (
                       <span style={{ 
-                        fontSize: isMobile ? '8px' : '9px',
-                        fontWeight: '600'
+                        fontSize: isMobile ? '8px' : '10px',
+                        fontWeight: '600',
+                        color: 'white',
+                        textShadow: '1px 1px 2px rgba(0,0,0,0.5)'
                       }}>
                         •
                       </span>
@@ -233,7 +253,12 @@ const HeatmapGrid = ({ indicators, onCellClick, onDirectionChange }) => {
                   style={{ 
                     fontSize: isMobile ? '10px' : '11px', 
                     padding: isMobile ? '6px 8px' : '8px 12px',
-                    minHeight: 'auto'
+                    minHeight: 'auto',
+                    background: '#667eea',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer'
                   }}
                   onClick={() => onCellClick(indicator)}
                 >
@@ -256,7 +281,8 @@ const HeatmapGrid = ({ indicators, onCellClick, onDirectionChange }) => {
                       fontSize: isMobile ? '9px' : '10px', 
                       padding: '4px',
                       width: '100%',
-                      borderRadius: '4px'
+                      borderRadius: '4px',
+                      border: '1px solid #ddd'
                     }}
                   >
                     <option value="positive">📈 Up+</option>
