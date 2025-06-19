@@ -17,22 +17,17 @@ try:
     import datetime
     from flask import request, jsonify
     print("All imports successful!")
+    
+    # ---------------------------------------
+    # Configuration & Initialization
+    # ---------------------------------------
+    FRED_API_KEY = os.environ.get("FRED_API_KEY", "")
+    fred = Fred(api_key=FRED_API_KEY)
+    
 except ImportError as e:
     print(f"Import error: {e}")
-    # Try alternative imports
-    try:
-        import plotly.graph_objects as go
-        print("Using plotly graph_objects as fallback")
-        # We'll need to modify the code to use graph_objects instead of express
-    except ImportError:
-        print("Plotly not available at all")
-        sys.exit(1)
-
-# ---------------------------------------
-# Configuration & Initialization
-# ---------------------------------------
-FRED_API_KEY = os.environ.get("FRED_API_KEY", "")
-fred = Fred(api_key=FRED_API_KEY)
+    print("Failed to import required packages. Please ensure all dependencies are installed.")
+    sys.exit(1)
 
 # We'll fetch data for the last X years (monthly)
 def get_months_back():
