@@ -1,15 +1,32 @@
 import os
+import sys
 import time
 import threading
 import schedule
-import dash
-from dash import dcc, html, Input, Output, State, callback_context
-import plotly.express as px
-import pandas as pd
-from replit import db
-from fredapi import Fred
-import datetime
-from flask import request, jsonify
+
+# Try to ensure we're using the right Python path
+sys.path.insert(0, '/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages')
+
+try:
+    import dash
+    from dash import dcc, html, Input, Output, State, callback_context
+    import plotly.express as px
+    import pandas as pd
+    from replit import db
+    from fredapi import Fred
+    import datetime
+    from flask import request, jsonify
+    print("All imports successful!")
+except ImportError as e:
+    print(f"Import error: {e}")
+    # Try alternative imports
+    try:
+        import plotly.graph_objects as go
+        print("Using plotly graph_objects as fallback")
+        # We'll need to modify the code to use graph_objects instead of express
+    except ImportError:
+        print("Plotly not available at all")
+        sys.exit(1)
 
 # ---------------------------------------
 # Configuration & Initialization
