@@ -5,3 +5,4 @@ fredapi
 schedule
 replit
 flask
+numpy
