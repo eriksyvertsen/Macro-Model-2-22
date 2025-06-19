@@ -10,49 +10,21 @@ const PORT = process.env.PORT || 80;
 // Start Python backend
 console.log('Starting Python backend...');
 const pythonProcess = spawn('python3', ['main.py'], {
-  stdio: 'inherit',
-  env: { ...process.env, PORT: '8050' }
+  stdio: 'inherit'
 });
 
-pythonProcess.on('error', (error) => {
-  console.error('Failed to start Python backend:', error);
-});
-
-pythonProcess.on('close', (code) => {
-  console.log(`Python backend exited with code ${code}`);
-});
-
-// Give Python backend more time to start
+// Give Python backend time to start
 setTimeout(() => {
   console.log('Python backend should be running on port 8050');
-}, 5000);
-
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
+}, 3000);
 
 // Proxy API requests to Python backend
 app.use('/api', createProxyMiddleware({
-  target: 'http://127.0.0.1:8050',
+  target: 'http://localhost:8050',
   changeOrigin: true,
-  timeout: 30000,
-  proxyTimeout: 30000,
   onError: (err, req, res) => {
-    console.error('Proxy error:', err.message, 'for URL:', req.url);
-    if (!res.headersSent) {
-      res.status(500).json({ 
-        error: 'Backend service unavailable', 
-        details: err.message,
-        timestamp: new Date().toISOString()
-      });
-    }
-  },
-  onProxyReq: (proxyReq, req, res) => {
-    console.log('Proxying request:', req.method, req.url);
-  },
-  onProxyRes: (proxyRes, req, res) => {
-    console.log('Proxy response:', proxyRes.statusCode, 'for', req.url);
+    console.error('Proxy error:', err);
+    res.status(500).send('Backend service unavailable');
   }
 }));
 

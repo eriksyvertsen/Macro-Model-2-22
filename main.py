@@ -1,33 +1,21 @@
 import os
-import sys
 import time
 import threading
 import schedule
+import dash
+from dash import dcc, html, Input, Output, State, callback_context
+import plotly.express as px
+import pandas as pd
+from replit import db
+from fredapi import Fred
+import datetime
+from flask import request, jsonify
 
-# Try to ensure we're using the right Python path
-sys.path.insert(0, '/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages')
-
-try:
-    import dash
-    from dash import dcc, html, Input, Output, State, callback_context
-    import plotly.express as px
-    import pandas as pd
-    from replit import db
-    from fredapi import Fred
-    import datetime
-    from flask import request, jsonify
-    print("All imports successful!")
-    
-    # ---------------------------------------
-    # Configuration & Initialization
-    # ---------------------------------------
-    FRED_API_KEY = os.environ.get("FRED_API_KEY", "")
-    fred = Fred(api_key=FRED_API_KEY)
-    
-except ImportError as e:
-    print(f"Import error: {e}")
-    print("Failed to import required packages. Please ensure all dependencies are installed.")
-    sys.exit(1)
+# ---------------------------------------
+# Configuration & Initialization
+# ---------------------------------------
+FRED_API_KEY = os.environ.get("FRED_API_KEY", "")
+fred = Fred(api_key=FRED_API_KEY)
 
 # We'll fetch data for the last X years (monthly)
 def get_months_back():
@@ -1751,9 +1739,4 @@ from flask import request, jsonify
 # ---------------------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8050))
-    log_message(f"Starting Dash server on host=0.0.0.0, port={port}")
-    try:
-        app.run_server(host="0.0.0.0", port=port, debug=False)
-    except Exception as e:
-        log_message(f"Failed to start server: {str(e)}", "ERROR")
-        raise
+    app.run_server(host="0.0.0.0", port=port, debug=True)

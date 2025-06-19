@@ -12,9 +12,8 @@ language = "python3"
 requiredFiles = [".replit", "replit.nix"]
 
 [deployment]
-run = ["sh", "-c", "npm start"]
+run = ["python3", "main.py"]
 deploymentTarget = "cloudrun"
-build = ["sh", "-c", "npm run build"]
 
 [[ports]]
 localPort = 3000
