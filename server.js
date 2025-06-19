@@ -34,7 +34,7 @@ app.get('/health', (req, res) => {
 
 // Proxy API requests to Python backend
 app.use('/api', createProxyMiddleware({
-  target: 'http://localhost:8050',
+  target: 'http://127.0.0.1:8050',
   changeOrigin: true,
   timeout: 30000,
   proxyTimeout: 30000,
