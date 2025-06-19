@@ -1739,4 +1739,9 @@ from flask import request, jsonify
 # ---------------------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8050))
-    app.run_server(host="0.0.0.0", port=port, debug=True)
+    log_message(f"Starting Dash server on host=0.0.0.0, port={port}")
+    try:
+        app.run_server(host="0.0.0.0", port=port, debug=False)
+    except Exception as e:
+        log_message(f"Failed to start server: {str(e)}", "ERROR")
+        raise
