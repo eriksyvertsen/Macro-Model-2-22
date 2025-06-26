@@ -1739,4 +1739,15 @@ from flask import request, jsonify
 # ---------------------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8050))
-    app.run_server(host="0.0.0.0", port=port, debug=True)
+    try:
+        # Use app.run for Dash 3.x compatibility
+        app.run(host="0.0.0.0", port=port, debug=True)
+    except Exception as e:
+        log_message(f"Failed to start server: {e}", "ERROR")
+        # Fallback for older Dash versions
+        try:
+            app.run_server(host="0.0.0.0", port=port, debug=True)
+        except Exception as e2:
+            log_message(f"Fallback also failed: {e2}", "ERROR")
+            print(f"Server startup failed. Please check Dash version compatibility.")
+            exit(1)
