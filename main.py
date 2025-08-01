@@ -9,7 +9,7 @@ import pandas as pd
 from replit import db
 from fredapi import Fred
 import datetime
-from flask import request, jsonify
+from flask import request, jsonify, send_from_directory
 
 # ---------------------------------------
 # Configuration & Initialization
@@ -1733,6 +1733,25 @@ def api_reset_weights():
 
 # Import request from flask at the top
 from flask import request, jsonify
+
+# ---------------------------------------
+# Static File Serving for React Frontend
+# ---------------------------------------
+@app.server.route('/', defaults={'path': ''})
+@app.server.route('/<path:path>')
+def serve_react(path):
+    """Serve React frontend files"""
+    try:
+        frontend_build_path = os.path.join(os.getcwd(), 'frontend', 'build')
+        
+        if path != "" and os.path.exists(os.path.join(frontend_build_path, path)):
+            return send_from_directory(frontend_build_path, path)
+        else:
+            return send_from_directory(frontend_build_path, 'index.html')
+    except Exception as e:
+        log_message(f"Error serving static files: {str(e)}", "ERROR")
+        # Fallback to Dash app if React build doesn't exist
+        return app.index()
 
 # ---------------------------------------
 # Run Server
