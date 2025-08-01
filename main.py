@@ -877,23 +877,23 @@ def layout_dashboard():
                         "overflow": "hidden",
                         "textOverflow": "ellipsis"  # Add ellipsis for long names
                     }),
-                    *row_cells,
                     html.Td([
                         modal_button,
                         direction_toggle
-                    ])
+                    ]),
+                    *row_cells
                 ],
                 id=f"row-{sid}"
             )
         )
 
     # Build the table header
-    header_cells = [html.Th("Indicator")] + [
+    header_cells = [html.Th("Indicator"), html.Th("Actions")] + [
         html.Th(
             f"{m.split('-')[1]}/{m.split('-')[0][-2:]}",  # Show MM/YY format
             title=m  # Full date as tooltip
         ) for m in months_list
-    ] + [html.Th("Actions")]
+    ]
 
     # Store initial header
     header = html.Tr(header_cells, id="month-header-row")
@@ -1035,12 +1035,12 @@ def update_months_display(show_mode):
         months_list.append(m.strftime("%Y-%m"))
 
     # Generate header cells
-    header_cells = [html.Th("Indicator")] + [
+    header_cells = [html.Th("Indicator"), html.Th("Actions")] + [
         html.Th(
             f"{m.split('-')[1]}/{m.split('-')[0][-2:]}",  # Show MM/YY format
             title=m  # Full date as tooltip
         ) for m in months_list
-    ] + [html.Th("Actions")]
+    ]
 
     return header_cells
 

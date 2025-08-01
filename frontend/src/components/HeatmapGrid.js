@@ -139,12 +139,15 @@ const HeatmapGrid = ({ indicators, onCellClick, onDirectionChange }) => {
           {/* Header row */}
           <div style={{ 
             display: 'grid', 
-            gridTemplateColumns: `${isMobile ? '160px' : '220px'} repeat(${displayMonths.length}, ${isMobile ? '32px' : '40px'}) ${isMobile ? '140px' : '180px'}`,
+            gridTemplateColumns: `${isMobile ? '160px' : '220px'} ${isMobile ? '140px' : '180px'} repeat(${displayMonths.length}, ${isMobile ? '32px' : '40px'})`,
             gap: '4px',
             marginBottom: '8px'
           }}>
             <div className="heatmap-header">
               📊 Indicator
+            </div>
+            <div className="heatmap-header">
+              ⚙️ Controls
             </div>
             {displayMonths.map(month => (
               <div 
@@ -160,9 +163,6 @@ const HeatmapGrid = ({ indicators, onCellClick, onDirectionChange }) => {
                 {month ? `${month.split('-')[1]}/${month.split('-')[0].slice(-2)}` : ''}
               </div>
             ))}
-            <div className="heatmap-header">
-              ⚙️ Controls
-            </div>
           </div>
 
           {/* Data rows */}
@@ -171,7 +171,7 @@ const HeatmapGrid = ({ indicators, onCellClick, onDirectionChange }) => {
               key={indicator.id}
               style={{ 
                 display: 'grid', 
-                gridTemplateColumns: `${isMobile ? '160px' : '220px'} repeat(${displayMonths.length}, ${isMobile ? '32px' : '40px'}) ${isMobile ? '140px' : '180px'}`,
+                gridTemplateColumns: `${isMobile ? '160px' : '220px'} ${isMobile ? '140px' : '180px'} repeat(${displayMonths.length}, ${isMobile ? '32px' : '40px'})`,
                 gap: '4px',
                 marginBottom: '4px',
                 alignItems: 'center',
@@ -200,44 +200,6 @@ const HeatmapGrid = ({ indicators, onCellClick, onDirectionChange }) => {
                   {indicator.direction === 'positive' ? '📈 Up+' : '📉 Up-'}
                 </div>
               </div>
-
-              {displayMonths.map(month => {
-                const monthData = indicator.data ? indicator.data.find(d => d.month === month) : null;
-                const classification = monthData?.classification || '#6c757d';
-                const value = monthData?.value;
-                
-                return (
-                  <div
-                    key={`${indicator.id}-${month}`}
-                    className="heatmap-cell"
-                    style={{
-                      backgroundColor: getColorFromClassification(classification),
-                      cursor: 'pointer',
-                      width: isMobile ? '32px' : '40px',
-                      height: isMobile ? '32px' : '36px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      borderRadius: '6px',
-                      transition: 'all 0.2s ease',
-                      border: '1px solid rgba(255,255,255,0.2)'
-                    }}
-                    onClick={() => handleCellClick(indicator, month, value)}
-                    title={`${indicator.name}\n${month}\n${value !== undefined && value !== null ? `Value: ${value.toLocaleString()}` : 'No data'}`}
-                  >
-                    {value !== undefined && value !== null && (
-                      <span style={{ 
-                        fontSize: isMobile ? '8px' : '10px',
-                        fontWeight: '600',
-                        color: 'white',
-                        textShadow: '1px 1px 2px rgba(0,0,0,0.5)'
-                      }}>
-                        •
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
 
               <div style={{ 
                 padding: isMobile ? '6px' : '8px', 
@@ -290,6 +252,44 @@ const HeatmapGrid = ({ indicators, onCellClick, onDirectionChange }) => {
                   </select>
                 </div>
               </div>
+
+              {displayMonths.map(month => {
+                const monthData = indicator.data ? indicator.data.find(d => d.month === month) : null;
+                const classification = monthData?.classification || '#6c757d';
+                const value = monthData?.value;
+                
+                return (
+                  <div
+                    key={`${indicator.id}-${month}`}
+                    className="heatmap-cell"
+                    style={{
+                      backgroundColor: getColorFromClassification(classification),
+                      cursor: 'pointer',
+                      width: isMobile ? '32px' : '40px',
+                      height: isMobile ? '32px' : '36px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      borderRadius: '6px',
+                      transition: 'all 0.2s ease',
+                      border: '1px solid rgba(255,255,255,0.2)'
+                    }}
+                    onClick={() => handleCellClick(indicator, month, value)}
+                    title={`${indicator.name}\n${month}\n${value !== undefined && value !== null ? `Value: ${value.toLocaleString()}` : 'No data'}`}
+                  >
+                    {value !== undefined && value !== null && (
+                      <span style={{ 
+                        fontSize: isMobile ? '8px' : '10px',
+                        fontWeight: '600',
+                        color: 'white',
+                        textShadow: '1px 1px 2px rgba(0,0,0,0.5)'
+                      }}>
+                        •
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           ))}
         </div>
