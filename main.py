@@ -890,7 +890,7 @@ def layout_dashboard():
     # Build the table header
     header_cells = [html.Th("Indicator")] + [
         html.Th(
-            m.split("-")[1],  # Just show the month, not the year
+            f"{m.split('-')[1]}/{m.split('-')[0][-2:]}",  # Show MM/YY format
             title=m  # Full date as tooltip
         ) for m in months_list
     ] + [html.Th("Actions")]
@@ -1037,7 +1037,7 @@ def update_months_display(show_mode):
     # Generate header cells
     header_cells = [html.Th("Indicator")] + [
         html.Th(
-            m.split("-")[1],  # Just show the month, not the year
+            f"{m.split('-')[1]}/{m.split('-')[0][-2:]}",  # Show MM/YY format
             title=m  # Full date as tooltip
         ) for m in months_list
     ] + [html.Th("Actions")]

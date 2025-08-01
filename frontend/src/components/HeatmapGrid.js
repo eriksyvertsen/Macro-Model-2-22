@@ -157,7 +157,7 @@ const HeatmapGrid = ({ indicators, onCellClick, onDirectionChange }) => {
                 }}
                 title={month}
               >
-                {month ? month.split('-')[1] : ''}
+                {month ? `${month.split('-')[1]}/${month.split('-')[0].slice(-2)}` : ''}
               </div>
             ))}
             <div className="heatmap-header">
