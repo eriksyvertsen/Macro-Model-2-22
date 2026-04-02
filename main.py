@@ -590,11 +590,12 @@ app.index_string = '''
                 padding: 0;
             }
             .indicator-table td.heatmap-cell:hover {
-                transform: scale(1.3);
-                box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+                transform: scale(1.4);
+                box-shadow: 0 2px 10px rgba(0,0,0,0.4);
                 z-index: 10;
                 position: relative;
-                outline: 2px solid #fff;
+                outline: 2px solid #333;
+                border-radius: 2px;
             }
             /* Row hover highlight */
             .indicator-table tbody tr:hover td.sticky-col {
@@ -779,31 +780,17 @@ def layout_dashboard():
         ])
 
     months_back = get_months_back()
-    # Default display: show all fetched months (user controls via "Months" input)
-    max_display_months = months_back
 
+    # Hidden elements to keep toggle callback happy (it expects these IDs)
     display_toggle = html.Div([
-        html.Label("View:", style={"fontWeight": "600", "fontSize": "12px", "marginRight": "6px"}),
-        dcc.RadioItems(
-            id="show-all-months-toggle",
-            options=[
-                {'label': f'Recent (24 mo)', 'value': 'recent'},
-                {'label': f'All ({months_back} mo)', 'value': 'all'}
-            ],
-            value='recent',
-            inline=True,
-            style={"fontSize": "12px", "display": "inline-block"}
-        )
-    ], style={"marginBottom": "6px", "display": "flex", "alignItems": "center"})
-
-    # Add container for the month headers
+        dcc.RadioItems(id="show-all-months-toggle", options=[{'label': '', 'value': 'all'}], value='all', style={"display": "none"})
+    ])
     month_headers_container = html.Div(id="month-columns-container")
 
-    # Default to 24 months for a compact view
-    default_display = 24
+    # Show ALL months — user scrolls horizontally; auto-scroll to right (most recent)
     base = datetime.date.today().replace(day=1)
     months_list = []
-    for i in range(min(months_back, default_display), 0, -1):
+    for i in range(months_back, 0, -1):
         m = base - pd.DateOffset(months=i)
         months_list.append(m.strftime("%Y-%m"))
 
@@ -873,6 +860,9 @@ def layout_dashboard():
         legend,
         display_toggle,
         month_headers_container,
+        # Click hint
+        html.Div("👆 Click any colored cell to view its chart below",
+                 style={"fontSize": "11px", "color": "#888", "marginBottom": "4px", "fontStyle": "italic"}),
         html.Div(
             [
                 html.Table(
@@ -881,13 +871,19 @@ def layout_dashboard():
                     id="indicator-table"
                 )
             ],
-            className="heatmap-scroll-wrapper"
+            className="heatmap-scroll-wrapper",
+            id="heatmap-scroll-wrapper"
         ),
+        # Chart area with clearer empty state
         html.Div([
-            html.H3("Indicator Details", style={"marginBottom": "10px", "fontSize": "16px"}),
-            html.Div(id="inline-chart-container")
+            html.Div(id="inline-chart-container", children=html.Div(
+                "← Click a cell above to see the chart for that indicator",
+                style={"textAlign": "center", "padding": "30px", "color": "#aaa", "fontSize": "14px"}
+            ))
         ], className="chart-container"),
-        html.Div(id="modal-container")
+        html.Div(id="modal-container"),
+        # Hidden div to trigger auto-scroll callback
+        html.Div(id="auto-scroll-trigger", style={"display": "none"})
     ])
 
 # -------------------------------
@@ -974,6 +970,22 @@ def display_page(pathname):
     if pathname == "/composite":
         return layout_composite(), "nav-link", "nav-link active"
     return layout_dashboard(), "nav-link active", "nav-link"
+
+# Auto-scroll heatmap to the right (most recent months) after page renders
+app.clientside_callback(
+    """
+    function(children) {
+        setTimeout(function() {
+            var wrapper = document.getElementById("heatmap-scroll-wrapper");
+            if (wrapper) { wrapper.scrollLeft = wrapper.scrollWidth; }
+        }, 300);
+        return "";
+    }
+    """,
+    Output("auto-scroll-trigger", "children"),
+    Input("page-content", "children"),
+    prevent_initial_call=False
+)
 
 # -------------------------------
 # Callback: Display Toggle
