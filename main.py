@@ -422,44 +422,17 @@ def get_composite_df(weights_dict):
 # Custom Components
 # ---------------------------------------
 def create_legend():
-    """Create a color legend explaining the heatmap colors"""
-    legend_items = []
-    for color_name, color_value in [
-        ("Green", COLOR_SCHEME["green"]), 
-        ("Red", COLOR_SCHEME["red"]), 
-        ("Grey", COLOR_SCHEME["grey"])
-    ]:
-        legend_items.append(
-            html.Div([
-                html.Div(style={
-                    "backgroundColor": color_value,
-                    "width": "20px",
-                    "height": "20px",
-                    "display": "inline-block",
-                    "marginRight": "8px"
-                }),
-                html.Span(f"{color_name}: " + {
-                    "Green": "Positive trend",
-                    "Red": "Negative trend", 
-                    "Grey": "Neutral/No change"
-                }[color_name])
-            ], style={"marginRight": "15px", "display": "inline-block"})
-        )
-
+    """Create a compact inline color legend"""
     return html.Div([
-        html.Div(legend_items, style={"marginBottom": "5px"}),
-        html.Div([
-            html.Span("Note: Colors are based on indicator direction settings. ", style={"fontStyle": "italic"}),
-            html.Span("For 'Increase is Positive' indicators, green means increasing. ", style={"fontStyle": "italic"}),
-            html.Span("For 'Increase is Negative' indicators, green means decreasing.", style={"fontStyle": "italic"})
-        ])
-    ], style={
-        "marginBottom": "15px",
-        "padding": "10px",
-        "backgroundColor": "#f8f9fa",
-        "borderRadius": "5px",
-        "border": "1px solid #dee2e6"
-    })
+        html.Span(style={"backgroundColor": COLOR_SCHEME["green"]}, className="legend-swatch"),
+        html.Span("Positive"),
+        html.Span(style={"backgroundColor": COLOR_SCHEME["red"]}, className="legend-swatch"),
+        html.Span("Negative"),
+        html.Span(style={"backgroundColor": COLOR_SCHEME["grey"]}, className="legend-swatch"),
+        html.Span("Neutral"),
+        html.Span(" — ", style={"color": "#aaa"}),
+        html.Span("Colors reflect direction setting (Up+ / Up-)", style={"fontStyle": "italic", "color": "#888"}),
+    ], className="legend-bar")
 
 def create_loading_container(component_id, loading_message="Loading..."):
     """Create a container with loading animation"""
@@ -516,103 +489,170 @@ app.index_string = '''
                 background-color: #f5f6f7;
             }
             .dashboard-container {
-                max-width: 1200px;
+                max-width: 98vw;
                 margin: 0 auto;
-                padding: 20px;
+                padding: 12px;
                 background-color: white;
                 box-shadow: 0 0 10px rgba(0,0,0,0.05);
                 border-radius: 8px;
             }
             .header {
-                padding: 15px 0;
-                margin-bottom: 20px;
+                padding: 8px 0;
+                margin-bottom: 8px;
                 border-bottom: 1px solid #eaeaea;
             }
+            .header h1 { font-size: 20px; margin-bottom: 2px; }
+            .header p { font-size: 13px; color: #666; margin: 0; }
             .controls-bar {
                 display: flex;
                 flex-wrap: wrap;
                 align-items: center;
-                gap: 10px;
-                margin-bottom: 20px;
-                padding: 15px;
+                gap: 8px;
+                margin-bottom: 8px;
+                padding: 8px 12px;
                 background-color: #f8f9fa;
-                border-radius: 8px;
+                border-radius: 6px;
+                font-size: 13px;
+            }
+            /* Heatmap table: sticky first col, compact cells */
+            .heatmap-scroll-wrapper {
+                overflow-x: auto;
+                max-height: 70vh;
+                overflow-y: auto;
+                margin-bottom: 12px;
+                border: 1px solid #dee2e6;
+                border-radius: 6px;
             }
             .indicator-table {
-                width: 100%;
-                border-collapse: collapse;
+                border-collapse: separate;
+                border-spacing: 0;
             }
             .indicator-table th, .indicator-table td {
-                border: 1px solid #dee2e6;
-                padding: 8px;
+                padding: 0;
+                border-right: 1px solid rgba(0,0,0,0.06);
+                border-bottom: 1px solid rgba(0,0,0,0.06);
             }
-            .indicator-table th {
-                background-color: #e9ecef;
+            /* Sticky header row */
+            .indicator-table thead th {
                 position: sticky;
                 top: 0;
+                z-index: 20;
+                background-color: #f1f3f5;
+                font-size: 10px;
+                font-weight: 600;
+                color: #495057;
+                padding: 4px 2px;
+                text-align: center;
+                white-space: nowrap;
+            }
+            /* Rotated date headers */
+            .indicator-table thead th.date-header {
+                height: 48px;
+                vertical-align: bottom;
+                padding-bottom: 4px;
+            }
+            .indicator-table thead th.date-header span {
+                display: inline-block;
+                transform: rotate(-55deg);
+                transform-origin: center center;
+                font-size: 10px;
+                white-space: nowrap;
+            }
+            /* Sticky first column (indicator name) */
+            .indicator-table th.sticky-col,
+            .indicator-table td.sticky-col {
+                position: sticky;
+                left: 0;
+                z-index: 15;
+                background-color: #fff;
+                min-width: 180px;
+                max-width: 220px;
+                padding: 4px 8px;
+                font-size: 12px;
+                font-weight: 600;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                border-right: 2px solid #dee2e6;
+            }
+            .indicator-table thead th.sticky-col {
+                z-index: 25;
+                background-color: #f1f3f5;
+            }
+            /* Heatmap data cells - compact squares */
+            .indicator-table td.heatmap-cell {
+                width: 22px;
+                min-width: 22px;
+                max-width: 22px;
+                height: 22px;
+                cursor: pointer;
+                transition: transform 0.1s, box-shadow 0.1s;
+                padding: 0;
+            }
+            .indicator-table td.heatmap-cell:hover {
+                transform: scale(1.3);
+                box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+                z-index: 10;
+                position: relative;
+                outline: 2px solid #fff;
+            }
+            /* Row hover highlight */
+            .indicator-table tbody tr:hover td.sticky-col {
+                background-color: #e8f0fe;
+            }
+            .indicator-table tbody tr:hover {
+                background-color: rgba(66,133,244,0.04);
+            }
+            .indicator-table tbody tr:nth-child(even) td.sticky-col {
+                background-color: #f8f9fa;
+            }
+            .indicator-table tbody tr:nth-child(even):hover td.sticky-col {
+                background-color: #e8f0fe;
             }
             .indicator-table tr:nth-child(even) {
-                background-color: #f2f2f2;
-            }
-            .indicator-table tr:hover {
-                background-color: #e2e6ea;
+                background-color: #fafafa;
             }
             .navbar {
                 background-color: #343a40;
-                padding: 10px 20px;
-                margin-bottom: 20px;
+                padding: 6px 16px;
+                margin-bottom: 8px;
             }
             .navbar a {
                 color: white;
                 text-decoration: none;
-                padding: 8px 15px;
+                padding: 6px 12px;
                 border-radius: 4px;
+                font-size: 13px;
             }
-            .navbar a:hover {
-                background-color: #495057;
-            }
-            .navbar a.active {
-                background-color: #007bff;
-            }
+            .navbar a:hover { background-color: #495057; }
+            .navbar a.active { background-color: #007bff; }
             .btn {
-                padding: 8px 16px;
+                padding: 5px 12px;
                 border: none;
                 border-radius: 4px;
                 cursor: pointer;
                 font-weight: 500;
+                font-size: 12px;
                 transition: background-color 0.2s;
             }
-            .btn-primary {
-                background-color: #007bff;
-                color: white;
-            }
-            .btn-primary:hover {
-                background-color: #0069d9;
-            }
-            .btn-secondary {
-                background-color: #6c757d;
-                color: white;
-            }
-            .btn-secondary:hover {
-                background-color: #5a6268;
-            }
+            .btn-primary { background-color: #007bff; color: white; }
+            .btn-primary:hover { background-color: #0069d9; }
+            .btn-secondary { background-color: #6c757d; color: white; }
+            .btn-secondary:hover { background-color: #5a6268; }
             .form-control {
-                padding: 8px;
+                padding: 5px 8px;
                 border: 1px solid #ced4da;
                 border-radius: 4px;
-                font-size: 16px;
+                font-size: 13px;
             }
             .chart-container {
-                margin-top: 30px;
-                padding: 15px 0px;
+                margin-top: 12px;
+                padding: 12px;
                 border: 1px solid #dee2e6;
                 border-radius: 8px;
                 background-color: white;
             }
-            .tooltip {
-                position: relative;
-                display: inline-block;
-            }
+            .tooltip { position: relative; display: inline-block; }
             .tooltip .tooltiptext {
                 visibility: hidden;
                 width: 200px;
@@ -622,62 +662,39 @@ app.index_string = '''
                 border-radius: 6px;
                 padding: 5px;
                 position: absolute;
-                z-index: 1;
+                z-index: 30;
                 bottom: 125%;
                 left: 50%;
                 margin-left: -100px;
                 opacity: 0;
-                transition: opacity 0.3s;
+                transition: opacity 0.2s;
+                font-size: 11px;
             }
-            .tooltip:hover .tooltiptext {
-                visibility: visible;
-                opacity: 1;
-            }
+            .tooltip:hover .tooltiptext { visibility: visible; opacity: 1; }
             .direction-indicator {
-                font-size: 12px;
-                color: #666;
+                font-size: 10px;
+                color: #888;
                 font-style: italic;
-                margin-left: 5px;
+                margin-left: 3px;
             }
-            /* Toggle switch styling */
-            .switch {
-                position: relative;
+            /* Compact legend */
+            .legend-bar {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                font-size: 11px;
+                color: #555;
+                margin-bottom: 6px;
+                padding: 4px 8px;
+                background: #f8f9fa;
+                border-radius: 4px;
+            }
+            .legend-swatch {
+                width: 14px; height: 14px;
+                border-radius: 3px;
                 display: inline-block;
-                width: 60px;
-                height: 24px;
-            }
-            .switch input {
-                opacity: 0;
-                width: 0;
-                height: 0;
-            }
-            .slider {
-                position: absolute;
-                cursor: pointer;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                background-color: #ccc;
-                transition: .4s;
-                border-radius: 24px;
-            }
-            .slider:before {
-                position: absolute;
-                content: "";
-                height: 16px;
-                width: 16px;
-                left: 4px;
-                bottom: 4px;
-                background-color: white;
-                transition: .4s;
-                border-radius: 50%;
-            }
-            input:checked + .slider {
-                background-color: #2196F3;
-            }
-            input:checked + .slider:before {
-                transform: translateX(34px);
+                vertical-align: middle;
+                margin-right: 3px;
             }
         </style>
     </head>
@@ -707,54 +724,38 @@ app.layout = html.Div([
 # Dashboard (Heatmap) Layout
 # -------------------------------
 def layout_dashboard():
-    # Add a header with dashboard title
+    # Compact header
     header = html.Div([
-        html.H1("Macroeconomic Indicator Dashboard", style={"marginBottom": "10px"}),
-        html.P([
-            "Monitor key economic indicators and their trends. ",
-            html.Span("Click on a cell to see the detailed chart, or use the 'Open Modal' button for a larger view.",
-                     style={"fontStyle": "italic"})
-        ])
+        html.H1("Macro Heatmap"),
+        html.P("Click any cell to see its chart.")
     ], className="header")
 
-    # A top panel for adding a new series and refreshing all
+    # Single-row compact controls bar
     controls_bar = html.Div([
-        html.Div([
-            html.Label("Add New Indicator:", style={"fontWeight": "bold", "marginRight": "10px"}),
-            dcc.Input(
-                id="new-series-id",
-                type="text",
-                placeholder="Enter FRED Series ID (e.g. UNRATE)",
-                className="form-control",
-                style={"width": "250px", "marginRight": "10px"}
-            ),
-            html.Button("Add Series", id="add-series-btn", n_clicks=0, className="btn btn-primary")
-        ]),
-        html.Div([
-            html.Button("Refresh All Data", id="refresh-all-btn", n_clicks=0, className="btn btn-secondary"),
-            html.Div(id="add-series-msg", style={"color": "#28a745", "marginLeft": "10px", "display": "inline-block"}),
-            html.Div(id="global-message", style={"color": "#28a745", "marginLeft": "10px", "display": "inline-block"})
-        ]),
-        # Add months back controls
-        html.Div([
-            html.Label("Months to Display:", style={"fontWeight": "bold", "marginRight": "10px"}),
-            dcc.Input(
-                id="months-back-input",
-                type="number",
-                value=get_months_back(),
-                min=1,
-                max=300,
-                step=1,
-                className="form-control",
-                style={"width": "80px", "marginRight": "10px"}
-            ),
-            html.Button(
-                "Apply & Refresh All",
-                id="update-months-back-btn",
-                n_clicks=0,
-                className="btn btn-primary"
-            )
-        ], style={"display": "flex", "alignItems": "center", "marginLeft": "20px"})
+        dcc.Input(
+            id="new-series-id",
+            type="text",
+            placeholder="FRED ID (e.g. UNRATE)",
+            className="form-control",
+            style={"width": "180px"}
+        ),
+        html.Button("Add", id="add-series-btn", n_clicks=0, className="btn btn-primary"),
+        html.Button("Refresh All", id="refresh-all-btn", n_clicks=0, className="btn btn-secondary"),
+        html.Div(id="add-series-msg", style={"color": "#28a745", "fontSize": "12px", "display": "inline-block"}),
+        html.Div(id="global-message", style={"color": "#28a745", "fontSize": "12px", "display": "inline-block"}),
+        html.Span("|", style={"color": "#ccc"}),
+        html.Label("Months:", style={"fontWeight": "600", "fontSize": "12px"}),
+        dcc.Input(
+            id="months-back-input",
+            type="number",
+            value=get_months_back(),
+            min=1,
+            max=300,
+            step=1,
+            className="form-control",
+            style={"width": "60px"}
+        ),
+        html.Button("Apply", id="update-months-back-btn", n_clicks=0, className="btn btn-primary"),
     ], className="controls-bar")
 
     # Add color legend
@@ -777,87 +778,64 @@ def layout_dashboard():
             ], style={"textAlign": "center", "padding": "30px", "backgroundColor": "#f8f9fa", "borderRadius": "8px"})
         ])
 
-    # Add toggle for showing all months vs recent
     months_back = get_months_back()
-    max_display_months = 60  # Maximum months to show in the grid at once
+    # Default display: show all fetched months (user controls via "Months" input)
+    max_display_months = months_back
 
     display_toggle = html.Div([
-        html.Label("Time Display:", style={"fontWeight": "bold", "marginRight": "10px"}),
+        html.Label("View:", style={"fontWeight": "600", "fontSize": "12px", "marginRight": "6px"}),
         dcc.RadioItems(
             id="show-all-months-toggle",
             options=[
-                {'label': f'Show Recent (max {max_display_months} months)', 'value': 'recent'},
-                {'label': f'Show All ({months_back} months)', 'value': 'all' if months_back <= max_display_months * 2 else 'paginated'}
+                {'label': f'Recent (24 mo)', 'value': 'recent'},
+                {'label': f'All ({months_back} mo)', 'value': 'all'}
             ],
             value='recent',
-            inline=True
+            inline=True,
+            style={"fontSize": "12px", "display": "inline-block"}
         )
-    ], style={"marginBottom": "15px"})
+    ], style={"marginBottom": "6px", "display": "flex", "alignItems": "center"})
 
     # Add container for the month headers
     month_headers_container = html.Div(id="month-columns-container")
 
-    # Generate list of months for the past 24 months (default view)
-    # This will be updated by the callback based on the toggle
+    # Default to 24 months for a compact view
+    default_display = 24
     base = datetime.date.today().replace(day=1)
     months_list = []
-    for i in range(min(months_back, max_display_months), 0, -1):
+    for i in range(min(months_back, default_display), 0, -1):
         m = base - pd.DateOffset(months=i)
         months_list.append(m.strftime("%Y-%m"))
 
-    # Build table rows
+    # Build table rows — no Actions column, just name + heatmap cells
     table_rows = []
     for idx, sid in enumerate(db["series_list"]):
         key = f"series_{sid}"
         entry = db.get(key, {})
-        # The stored 'name' field is the official series title
         series_name = entry.get("name", sid)
         direction = entry.get("direction", "positive")
 
         monthly_class = dict(get_monthly_classifications(sid))
 
-        # 1) Create the row cells for each month (colored squares)
         row_cells = []
         for month_str in months_list:
             color = monthly_class.get(month_str, "#6c757d")
-            # Color is now directly a hex/rgb value from gradient
-            bg_color = color
             cell_id = f"{sid}-{month_str}"
             row_cells.append(
                 html.Td(
                     id=cell_id,
-                    # Add tooltips for each cell
-                    children=html.Div(className="tooltip", children=[
-                        "",  # Empty string as placeholder
-                        html.Span(
-                            f"{sid}: {month_str}",
-                            className="tooltiptext"
-                        )
-                    ]),
-                    style={
-                        "backgroundColor": bg_color,
-                        "width": "30px",
-                        "height": "25px",
-                        "cursor": "pointer",
-                        "textAlign": "center"
-                    }
+                    children="",
+                    className="heatmap-cell",
+                    style={"backgroundColor": color},
+                    title=f"{series_name} | {month_str}"
                 )
             )
 
-        # 2) Create the direction toggle for this indicator
+        # Hidden elements for modal/direction callbacks (kept for Dash callback compatibility)
+        modal_btn_id = f"open-modal-{sid}"
         direction_toggle = create_direction_toggle(sid, direction)
 
-        # 3) Add a final cell with modal button and direction toggle
-        modal_btn_id = f"open-modal-{sid}"
-        modal_button = html.Button(
-            "Open Modal",
-            id=modal_btn_id,
-            n_clicks=0,
-            className="btn btn-secondary",
-            style={"fontSize": "12px", "padding": "4px 8px"}
-        )
-
-        # Improved row styling with tooltip for full name
+        dir_label = "+" if direction == "positive" else "-"
         table_rows.append(
             html.Tr(
                 [
@@ -866,37 +844,28 @@ def layout_dashboard():
                             series_name,
                             html.Span(series_name, className="tooltiptext")
                         ]),
-                        html.Span(
-                            f" ({('Up+' if direction == 'positive' else 'Up-')})",
-                            className="direction-indicator"
-                        )
-                    ], style={
-                        "fontWeight": "bold",
-                        "whiteSpace": "nowrap",
-                        "width": "200px",  # Reduced width for better overall table display
-                        "overflow": "hidden",
-                        "textOverflow": "ellipsis"  # Add ellipsis for long names
-                    }),
-                    html.Td([
-                        modal_button,
-                        direction_toggle
-                    ]),
+                        html.Span(f" {dir_label}", className="direction-indicator"),
+                        # Hidden modal button (keeps callbacks working)
+                        html.Button("", id=modal_btn_id, n_clicks=0,
+                                    style={"display": "none"}),
+                        html.Div(direction_toggle, style={"display": "none"}),
+                    ], className="sticky-col"),
                     *row_cells
                 ],
                 id=f"row-{sid}"
             )
         )
 
-    # Build the table header
-    header_cells = [html.Th("Indicator"), html.Th("Actions")] + [
+    # Build header: sticky "Indicator" + rotated date headers
+    header_cells = [html.Th("Indicator", className="sticky-col")] + [
         html.Th(
-            f"{m.split('-')[1]}/{m.split('-')[0][-2:]}",  # Show MM/YY format
-            title=m  # Full date as tooltip
+            html.Span(f"{m.split('-')[1]}/{m.split('-')[0][-2:]}"),
+            className="date-header",
+            title=m
         ) for m in months_list
     ]
 
-    # Store initial header
-    header = html.Tr(header_cells, id="month-header-row")
+    header_row = html.Tr(header_cells, id="month-header-row")
 
     return html.Div([
         header,
@@ -907,17 +876,17 @@ def layout_dashboard():
         html.Div(
             [
                 html.Table(
-                    [html.Thead(header), html.Tbody(table_rows)],
+                    [html.Thead(header_row), html.Tbody(table_rows)],
                     className="indicator-table",
                     id="indicator-table"
                 )
             ],
-            style={"overflowX": "auto", "marginBottom": "20px"}
+            className="heatmap-scroll-wrapper"
         ),
         html.Div([
-            html.H3("Indicator Details", style={"marginBottom": "15px", "textAlign": "left"}),
-            html.Div(id="inline-chart-container", style={"textAlign": "left", "padding": "0px"})
-        ], className="chart-container", style={"textAlign": "left", "padding": "0px"}),
+            html.H3("Indicator Details", style={"marginBottom": "10px", "fontSize": "16px"}),
+            html.Div(id="inline-chart-container")
+        ], className="chart-container"),
         html.Div(id="modal-container")
     ])
 
@@ -1010,39 +979,67 @@ def display_page(pathname):
 # Callback: Display Toggle
 # -------------------------------
 @app.callback(
-    Output("month-header-row", "children"),
+    Output("indicator-table", "children"),
     [Input("show-all-months-toggle", "value")],
     prevent_initial_call=True
 )
 def update_months_display(show_mode):
-    """
-    Update the header columns based on display mode.
-    """
-    # Calculate how many months to show
+    """Rebuild entire table (header + body) when display mode toggles."""
     months_back = get_months_back()
-    max_display_months = 60
+    display_months = months_back if show_mode == 'all' else min(24, months_back)
 
-    if show_mode == 'all':
-        display_months = months_back
-    else:
-        display_months = min(max_display_months, months_back)
-
-    # Generate list of months
     base = datetime.date.today().replace(day=1)
     months_list = []
     for i in range(display_months, 0, -1):
         m = base - pd.DateOffset(months=i)
         months_list.append(m.strftime("%Y-%m"))
 
-    # Generate header cells
-    header_cells = [html.Th("Indicator"), html.Th("Actions")] + [
-        html.Th(
-            f"{m.split('-')[1]}/{m.split('-')[0][-2:]}",  # Show MM/YY format
-            title=m  # Full date as tooltip
-        ) for m in months_list
+    # Header
+    header_cells = [html.Th("Indicator", className="sticky-col")] + [
+        html.Th(html.Span(f"{m.split('-')[1]}/{m.split('-')[0][-2:]}"),
+                className="date-header", title=m)
+        for m in months_list
     ]
 
-    return header_cells
+    # Data rows
+    table_rows = []
+    for sid in db.get("series_list", []):
+        entry = db.get(f"series_{sid}", {})
+        series_name = entry.get("name", sid)
+        direction = entry.get("direction", "positive")
+        monthly_class = dict(get_monthly_classifications(sid))
+
+        row_cells = []
+        for month_str in months_list:
+            color = monthly_class.get(month_str, "#6c757d")
+            row_cells.append(
+                html.Td("", className="heatmap-cell",
+                         id=f"{sid}-{month_str}",
+                         style={"backgroundColor": color},
+                         title=f"{series_name} | {month_str}")
+            )
+
+        dir_label = "+" if direction == "positive" else "-"
+        modal_btn_id = f"open-modal-{sid}"
+        direction_toggle = create_direction_toggle(sid, direction)
+
+        table_rows.append(html.Tr([
+            html.Td([
+                html.Div(className="tooltip", children=[
+                    series_name,
+                    html.Span(series_name, className="tooltiptext")
+                ]),
+                html.Span(f" {dir_label}", className="direction-indicator"),
+                html.Button("", id=modal_btn_id, n_clicks=0, style={"display": "none"}),
+                html.Div(direction_toggle, style={"display": "none"}),
+            ], className="sticky-col"),
+            *row_cells
+        ], id=f"row-{sid}"))
+
+    return [
+        html.Thead(html.Tr(header_cells, id="month-header-row")),
+        html.Tbody(table_rows)
+    ]
 
 # -------------------------------
 # Callback: Months Back Setting
@@ -1760,7 +1757,7 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8050))
     try:
         # Use app.run for Dash 3.x compatibility
-        app.run(host="0.0.0.0", port=port, debug=True)
+        app.run(host="0.0.0.0", port=port, debug=False)
     except Exception as e:
         log_message(f"Failed to start server: {e}", "ERROR")
         # Fallback for older Dash versions
