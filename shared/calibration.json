@@ -1,0 +1,117 @@
+{
+  "generatedAt": "2026-11-03T03:18:00.218Z",
+  "window": {
+    "start": "1996-11",
+    "end": "2026-10",
+    "months": 360,
+    "recessionMonths": 28
+  },
+  "method": {
+    "target": "NBER recession months (USREC), contemporaneous",
+    "model": "non-negative L2 logistic, class-balanced",
+    "validation": "leave-one-recession-out, 3 contiguous folds",
+    "lambda": 1,
+    "alpha": 0.25
+  },
+  "auc": {
+    "calibratedOutOfSample": 0.969,
+    "calibratedInSample": 0.979,
+    "equalWeights": 0.968,
+    "perFoldCalibrated": [
+      0.961,
+      0.971,
+      0.996
+    ],
+    "perFoldEqual": [
+      0.971,
+      0.967,
+      0.996
+    ],
+    "folds": [
+      "2001-04 to 2001-11",
+      "2008-01 to 2009-06",
+      "2020-03 to 2020-04"
+    ]
+  },
+  "calibrated": {
+    "avgInRecession": 24.1,
+    "avgInExpansion": 52.3,
+    "expansionMonthsBelow40": 18,
+    "perRecession": [
+      {
+        "start": "2001-04",
+        "end": "2001-11",
+        "scoreAtStart": 39,
+        "scoreSixMonthsBefore": 50.4,
+        "minScore": 32.9,
+        "minMonth": "2001-09"
+      },
+      {
+        "start": "2008-01",
+        "end": "2009-06",
+        "scoreAtStart": 41.7,
+        "scoreSixMonthsBefore": 53.8,
+        "minScore": 0,
+        "minMonth": "2008-11"
+      },
+      {
+        "start": "2020-03",
+        "end": "2020-04",
+        "scoreAtStart": 23.2,
+        "scoreSixMonthsBefore": 55.5,
+        "minScore": 0,
+        "minMonth": "2020-04"
+      }
+    ]
+  },
+  "equal": {
+    "avgInRecession": 27.3,
+    "avgInExpansion": 52,
+    "expansionMonthsBelow40": 17,
+    "perRecession": [
+      {
+        "start": "2001-04",
+        "end": "2001-11",
+        "scoreAtStart": 41.4,
+        "scoreSixMonthsBefore": 51,
+        "minScore": 36.2,
+        "minMonth": "2001-09"
+      },
+      {
+        "start": "2008-01",
+        "end": "2009-06",
+        "scoreAtStart": 43.1,
+        "scoreSixMonthsBefore": 53.1,
+        "minScore": 5.8,
+        "minMonth": "2008-12"
+      },
+      {
+        "start": "2020-03",
+        "end": "2020-04",
+        "scoreAtStart": 26.2,
+        "scoreSixMonthsBefore": 56,
+        "minScore": 0,
+        "minMonth": "2020-04"
+      }
+    ]
+  },
+  "weights": {
+    "UNRATE": 0.75,
+    "PAYEMS": 1,
+    "ICSA": 1,
+    "JTSJOL": 1,
+    "CPIAUCSL": 0.9,
+    "PCEPILFE": 0.75,
+    "INDPRO": 1.2,
+    "TCU": 0.85,
+    "RSAFS": 1.05,
+    "UMCSENT": 0.9,
+    "HOUST": 0.85,
+    "MORTGAGE30US": 0.95,
+    "T10Y2Y": 0.75,
+    "BAA10Y": 1.2,
+    "VIXCLS": 1.15,
+    "NASDAQCOM": 1.35,
+    "NFCI": 1.35
+  }
+}

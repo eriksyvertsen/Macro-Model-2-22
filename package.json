@@ -1,9 +1,25 @@
-
 {
-  "name": "macro-tracker-fullstack",
-  "version": "1.0.0",
+  "name": "macro-pulse",
+  "private": true,
+  "version": "2.0.0",
+  "type": "module",
   "scripts": {
-    "build": "cd frontend && npm install && npm run build",
-    "start": "python3 main.py"
+    "dev": "vite",
+    "snapshot": "node scripts/snapshot.js",
+    "build": "node scripts/snapshot.js && tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "calibrate": "tsx scripts/calibrate.ts"
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1",
+    "@vitejs/plugin-react": "4.3.4",
+    "tsx": "4.19.2",
+    "typescript": "5.6.3",
+    "vite": "5.4.11"
   }
 }
